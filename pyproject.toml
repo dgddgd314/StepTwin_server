@@ -11,13 +11,13 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
     "aiomysql>=0.2.0",
     "fastapi[standard]>=0.116.0",
+    "httpx>=0.28.0",
     "pydantic-settings>=2.10.0",
     "sqlalchemy[asyncio]>=2.0.41",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28.0",
     "mypy>=1.16.0",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",

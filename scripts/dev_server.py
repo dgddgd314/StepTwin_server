@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from os import getenv
 from pathlib import Path
 
 import uvicorn
@@ -10,6 +11,8 @@ def main() -> None:
     project_root = Path(__file__).resolve().parents[1]
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True)
+    host = getenv("API_HOST", "127.0.0.1")
+    port = int(getenv("API_PORT", "8000"))
 
     sys.path.insert(0, str(project_root / "src"))
 
@@ -20,8 +23,8 @@ def main() -> None:
         uvicorn.run(
             "steptwin_api.main:app",
             app_dir=str(project_root / "src"),
-            host="127.0.0.1",
-            port=8000,
+            host=host,
+            port=port,
             log_level="info",
         )
 

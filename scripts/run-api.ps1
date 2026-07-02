@@ -1,5 +1,8 @@
 param(
-    [switch]$LogToFile
+    [switch]$LogToFile,
+    [switch]$Lan,
+    [string]$HostAddress = "127.0.0.1",
+    [int]$Port = 8000
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,11 +10,15 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
+if ($Lan) {
+    $HostAddress = "0.0.0.0"
+}
+
 $CommandArgs = @(
     "-m", "uvicorn", "steptwin_api.main:app",
     "--app-dir", "src",
-    "--host", "127.0.0.1",
-    "--port", "8000"
+    "--host", $HostAddress,
+    "--port", $Port
 )
 
 if ($LogToFile) {
