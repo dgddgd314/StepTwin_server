@@ -30,6 +30,12 @@ The recommended production shape is:
 4. Run pgRouting shortest path with request-specific `cost`.
 5. Return ordered WGS84 coordinates to the existing StepTwin response contract.
 
+The canonical graph data shape and validation API are documented in:
+
+```text
+docs/pedestrian-graph-data.md
+```
+
 ## License Check
 
 pgRouting is open source and free to use, but its project license is GPL-2.0. For StepTwin, the

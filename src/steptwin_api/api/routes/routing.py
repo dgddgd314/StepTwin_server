@@ -13,4 +13,4 @@ router = APIRouter(prefix="/routes", tags=["routes"])
 )
 async def create_route_preview(request: RoutePreviewRequest) -> RoutePreviewResponse:
     service = RoutePreviewService()
-    return service.build_preview(request)
+    return await service.build_preview(request)

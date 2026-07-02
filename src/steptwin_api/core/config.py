@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800
+    pedestrian_graph_vertex_table: str = "pedestrian_vertices"
+    pedestrian_graph_edge_table: str = "pedestrian_edges"
+    pedestrian_graph_max_snap_distance_meters: float = 500
     tmap_app_key: str | None = None
     tmap_base_url: str = "https://apis.openapi.sk.com"
     tmap_transit_path: str = "/transit/routes"
@@ -38,8 +41,19 @@ class Settings(BaseSettings):
     tmap_format: Literal["json", "xml"] = "json"
     tmap_count: int = Field(default=10, ge=1, le=10)
     tmap_search_dttm: str | None = None
+    seoul_openapi_key: str | None = None
+    seoul_openapi_base_url: str = "http://openapi.seoul.go.kr:8088"
+    seoul_walk_net_service: str = "TbTraficWlkNet"
+    seoul_walk_net_format: Literal["xml", "json"] = "xml"
+    seoul_walk_net_page_size: int = Field(default=1000, ge=1, le=1000)
 
-    @field_validator("database_url", "tmap_app_key", "tmap_search_dttm", mode="before")
+    @field_validator(
+        "database_url",
+        "tmap_app_key",
+        "tmap_search_dttm",
+        "seoul_openapi_key",
+        mode="before",
+    )
     @classmethod
     def normalize_optional_string(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

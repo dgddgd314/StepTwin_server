@@ -1,11 +1,17 @@
 # Steptwin API
 
-FastAPI + MySQL-ready backend starter for the hackathon.
+FastAPI + PostGIS/pgRouting-ready backend starter for the hackathon.
 
 Shared Android/backend API contract:
 
 ```text
 docs/api-contract.md
+```
+
+Android handoff contract for the current PoC:
+
+```text
+docs/android-api-handoff.md
 ```
 
 Keep external API keys in local `.env` only. For TMAP, fill `TMAP_APP_KEY` in `.env` and keep
@@ -14,6 +20,7 @@ TMAP transit API integration notes are tracked in `docs/tmap-transit-api.md`.
 TMAP transit API integration notes are tracked in `docs/tmap-transit-api.md`.
 TMAP transit API integration notes are tracked in `docs/tmap-transit-api.md`.
 TMAP transit API integration notes are tracked in `docs/tmap-transit-api.md`.
+Pedestrian graph data requirements are tracked in `docs/pedestrian-graph-data.md`.
 
 ## Local Setup
 
@@ -22,8 +29,14 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
-docker compose up -d mysql
+docker compose up -d postgres
 python -m uvicorn steptwin_api.main:app --reload --app-dir src
+```
+
+Import the MVP Seoul OpenAPI walking network for Dongdaemun-gu into PostGIS:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\import_seoul_walk_network.py --sgg-name "동대문구"
 ```
 
 On Windows, you can also run:
@@ -92,6 +105,7 @@ http://127.0.0.1:8000/docs
 ```
 
 If `DATABASE_URL` is empty, the health API still works and reports the database check as disabled.
+The pgRouting walk route APIs require PostgreSQL/PostGIS/pgRouting.
 
 ## Project Shape
 

@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -43,6 +44,15 @@ async def close_database() -> None:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    if _session_factory is None:
+        raise RuntimeError("Database is not configured. Set DATABASE_URL before using DB sessions.")
+
+    async with _session_factory() as session:
+        yield session
+
+
+@asynccontextmanager
+async def session_context() -> AsyncIterator[AsyncSession]:
     if _session_factory is None:
         raise RuntimeError("Database is not configured. Set DATABASE_URL before using DB sessions.")
 
