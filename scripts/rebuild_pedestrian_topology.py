@@ -5,6 +5,7 @@ import asyncio
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from steptwin_api.core.config import get_settings
 from steptwin_api.db.session import close_database, init_database, session_context
@@ -76,7 +77,7 @@ async def rebuild_topology(tolerance_meters: float, *, node_network: bool) -> No
         print(f"{key}: {value}")
 
 
-async def drop_existing_topology_tables(session: object) -> None:
+async def drop_existing_topology_tables(session: AsyncSession) -> None:
     for table_name in (
         TOPOLOGY_EDGE_TABLE,
         TOPOLOGY_VERTEX_TABLE,
@@ -88,7 +89,7 @@ async def drop_existing_topology_tables(session: object) -> None:
         await session.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
 
 
-async def create_projected_work_edges(session: object, source_edge_table: str) -> None:
+async def create_projected_work_edges(session: AsyncSession, source_edge_table: str) -> None:
     source = quote_qualified_identifier(source_edge_table)
     await session.execute(
         text(
@@ -104,7 +105,10 @@ SELECT
     "shade_score"::double precision AS "shade_score",
     "corner_count"::integer AS "corner_count",
     "slope_grade"::double precision AS "slope_grade",
+    COALESCE("crowding_score", 0)::double precision AS "crowding_score",
     "crossing_type" AS "crossing_type",
+    "crossing_length_meters" AS "crossing_length_meters",
+    "crossing_wait_seconds" AS "crossing_wait_seconds",
     "surface_type" AS "surface_type",
     "width_meters" AS "width_meters",
     "curb_cut" AS "curb_cut",
@@ -127,7 +131,7 @@ WHERE "geom" IS NOT NULL
     )
 
 
-async def run_pgr_node_network(session: object, tolerance_meters: float) -> None:
+async def run_pgr_node_network(session: AsyncSession, tolerance_meters: float) -> None:
     await session.execute(
         text(
             """
@@ -152,7 +156,7 @@ SELECT pgr_nodeNetwork(
     )
 
 
-async def add_noded_attribute_columns(session: object) -> None:
+async def add_noded_attribute_columns(session: AsyncSession) -> None:
     await session.execute(
         text(
             f"""
@@ -162,7 +166,10 @@ ALTER TABLE "{TOPOLOGY_WORK_NODED_EDGE_TABLE}"
     ADD COLUMN "shade_score" double precision,
     ADD COLUMN "corner_count" integer,
     ADD COLUMN "slope_grade" double precision,
+    ADD COLUMN "crowding_score" double precision,
     ADD COLUMN "crossing_type" text,
+    ADD COLUMN "crossing_length_meters" double precision,
+    ADD COLUMN "crossing_wait_seconds" double precision,
     ADD COLUMN "surface_type" text,
     ADD COLUMN "width_meters" double precision,
     ADD COLUMN "curb_cut" boolean,
@@ -183,7 +190,10 @@ SET
     "shade_score" = source_edge."shade_score",
     "corner_count" = source_edge."corner_count",
     "slope_grade" = source_edge."slope_grade",
+    "crowding_score" = source_edge."crowding_score",
     "crossing_type" = source_edge."crossing_type",
+    "crossing_length_meters" = source_edge."crossing_length_meters",
+    "crossing_wait_seconds" = source_edge."crossing_wait_seconds",
     "surface_type" = source_edge."surface_type",
     "width_meters" = source_edge."width_meters",
     "curb_cut" = source_edge."curb_cut",
@@ -199,7 +209,7 @@ WHERE source_edge."id" = noded."old_id"
 
 
 async def run_pgr_create_topology(
-    session: object,
+    session: AsyncSession,
     topology_source_table: str,
     tolerance_meters: float,
 ) -> None:
@@ -222,7 +232,7 @@ SELECT pgr_createTopology(
     )
 
 
-async def create_api_topology_tables(session: object, topology_source_table: str) -> None:
+async def create_api_topology_tables(session: AsyncSession, topology_source_table: str) -> None:
     await session.execute(
         text(
             f"""
@@ -254,7 +264,10 @@ SELECT
     "shade_score"::double precision AS "shade_score",
     "corner_count"::integer AS "corner_count",
     "slope_grade"::double precision AS "slope_grade",
+    "crowding_score"::double precision AS "crowding_score",
     "crossing_type" AS "crossing_type",
+    "crossing_length_meters" AS "crossing_length_meters",
+    "crossing_wait_seconds" AS "crossing_wait_seconds",
     "surface_type" AS "surface_type",
     "width_meters" AS "width_meters",
     "curb_cut" AS "curb_cut",
@@ -280,7 +293,10 @@ SELECT
     "shade_score"::double precision AS "shade_score",
     "corner_count"::integer AS "corner_count",
     "slope_grade"::double precision AS "slope_grade",
+    "crowding_score"::double precision AS "crowding_score",
     "crossing_type" AS "crossing_type",
+    "crossing_length_meters" AS "crossing_length_meters",
+    "crossing_wait_seconds" AS "crossing_wait_seconds",
     "surface_type" AS "surface_type",
     "width_meters" AS "width_meters",
     "curb_cut" AS "curb_cut",
@@ -299,7 +315,7 @@ WHERE "source" IS NOT NULL
     await session.execute(text(f'ALTER TABLE "{TOPOLOGY_EDGE_TABLE}" ADD PRIMARY KEY ("id")'))
 
 
-async def create_api_topology_indexes(session: object) -> None:
+async def create_api_topology_indexes(session: AsyncSession) -> None:
     await session.execute(
         text(
             f'CREATE INDEX "{TOPOLOGY_VERTEX_TABLE}_geom_gix" '
@@ -326,7 +342,7 @@ async def create_api_topology_indexes(session: object) -> None:
     )
 
 
-async def fetch_summary(session: object) -> dict[str, int]:
+async def fetch_summary(session: AsyncSession) -> dict[str, int]:
     result = await session.execute(
         text(
             f"""

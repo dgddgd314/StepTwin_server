@@ -41,11 +41,18 @@ class Settings(BaseSettings):
     tmap_format: Literal["json", "xml"] = "json"
     tmap_count: int = Field(default=10, ge=1, le=10)
     tmap_search_dttm: str | None = None
+    seoul_openapi_key: str | None = None
+    seoul_openapi_base_url: str = "http://openapi.seoul.go.kr:8088"
+    seoul_sdot_type: Literal["json", "xml"] = "json"
+    seoul_sdot_service: str = "sDoTPeople"
+    seoul_sdot_start_index: int = Field(default=1, ge=1)
+    seoul_sdot_end_index: int = Field(default=100, ge=1)
 
     @field_validator(
         "database_url",
         "tmap_app_key",
         "tmap_search_dttm",
+        "seoul_openapi_key",
         mode="before",
     )
     @classmethod

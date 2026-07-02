@@ -1,3 +1,4 @@
+from typing import Protocol
 from uuid import uuid4
 
 from sqlalchemy.engine import make_url
@@ -24,6 +25,7 @@ from steptwin_api.services.macro_routing import (
     TmapMacroRouter,
     TransitLegSkeleton,
     TransitSkeleton,
+    transit_route_score_seconds,
 )
 from steptwin_api.services.micro_routing import DemoMicroRouter, WalkingRoute
 from steptwin_api.services.pgrouting_micro_routing import (
@@ -34,10 +36,14 @@ from steptwin_api.services.pgrouting_micro_routing import (
 )
 
 
+class MacroRouter(Protocol):
+    def build_transit_skeleton(self, origin: Place, destination: Place) -> TransitSkeleton: ...
+
+
 class RoutePreviewService:
     def __init__(
         self,
-        macro_router: DemoMacroRouter | TmapMacroRouter | None = None,
+        macro_router: MacroRouter | None = None,
         micro_router: DemoMicroRouter | None = None,
         settings: Settings | None = None,
     ) -> None:
@@ -46,26 +52,26 @@ class RoutePreviewService:
         self._micro_router = micro_router or DemoMicroRouter()
 
     async def build_preview(self, request: RoutePreviewRequest) -> RoutePreviewResponse:
+        preferences = request.effective_preferences
         skeleton = self._macro_router.build_transit_skeleton(request.origin, request.destination)
 
+        direct_walk, direct_source = await self._build_walk(
+            segment_id="walk-direct",
+            start=request.origin,
+            end=request.destination,
+            title="Direct walk",
+            preferences=preferences,
+        )
         first_mile, first_source = await self._build_walk(
             segment_id="walk-first-mile",
             start=request.origin,
             end=skeleton.boarding_stop,
             title="Stair-minimized first mile",
-            preferences=request.preferences,
+            preferences=preferences,
         )
         transit_legs = get_transit_legs(skeleton)
         segments = [first_mile.segment]
-        markers = [
-            RouteMarker(
-                id="origin",
-                kind="origin",
-                title=request.origin.name,
-                coordinate=request.origin.coordinate,
-                icon="origin",
-            )
-        ]
+        transit_walks = [first_mile]
         walk_sources = [first_source]
 
         for index, transit_leg in enumerate(transit_legs, start=1):
@@ -76,54 +82,50 @@ class RoutePreviewService:
                     start=previous_leg.alighting_stop,
                     end=transit_leg.boarding_stop,
                     title="Transfer walk",
-                    preferences=request.preferences,
+                    preferences=preferences,
                 )
                 segments.append(transfer_walk.segment)
-                markers.extend(transfer_walk.markers)
+                transit_walks.append(transfer_walk)
                 walk_sources.append(transfer_source)
 
             transit_segment = build_transit_segment(transit_leg, index=index)
             segments.append(transit_segment)
-            markers.extend(build_transit_stop_markers(transit_leg, transit_segment.id, index))
 
         last_mile, last_source = await self._build_walk(
             segment_id="walk-last-mile",
             start=transit_legs[-1].alighting_stop,
             end=request.destination,
             title="Shade-first last mile",
-            preferences=request.preferences,
+            preferences=preferences,
         )
         segments.append(last_mile.segment)
+        transit_walks.append(last_mile)
         walk_sources.append(last_source)
 
-        markers = [
-            *markers,
-            RouteMarker(
-                id="destination",
-                kind="destination",
-                title=request.destination.name,
-                coordinate=request.destination.coordinate,
-                icon="destination",
-            ),
-            *first_mile.markers,
-            *last_mile.markers,
-        ]
-        all_points = [point for segment in segments for point in segment.geometry]
-        southwest, northeast = viewport_for(all_points)
+        transit_score = build_transit_preview_score_seconds(skeleton, transit_walks)
+        direct_score = direct_walk.segment.metrics.duration_seconds
+        if direct_source == "pgrouting" and direct_score <= direct_walk_selection_limit_seconds(
+            transit_score,
+            preferences,
+        ):
+            return build_route_preview_response(
+                settings=self._settings,
+                origin=request.origin,
+                destination=request.destination,
+                segments=[direct_walk.segment],
+                walk_routes=[direct_walk],
+                transit_legs=(),
+                walk_sources=[direct_source],
+            )
 
-        return RoutePreviewResponse(
-            route_id=uuid4(),
-            summary=build_summary(segments),
+        return build_route_preview_response(
+            settings=self._settings,
+            origin=request.origin,
+            destination=request.destination,
             segments=segments,
-            markers=markers,
-            viewport=Viewport(southwest=southwest, northeast=northeast),
-            debug=RouteDebug(
-                macro_router=get_macro_router_name(self._settings),
-                micro_router=build_micro_router_debug_name(walk_sources),
-                tmap_live_sync=self._settings.tmap_use_live
-                and self._settings.tmap_app_key is not None,
-                note=build_debug_note(walk_sources),
-            ),
+            walk_routes=transit_walks,
+            transit_legs=transit_legs,
+            walk_sources=walk_sources,
         )
 
     async def _build_walk(
@@ -162,7 +164,7 @@ class RoutePreviewService:
         )
 
 
-def build_macro_router(settings: Settings) -> DemoMacroRouter | TmapMacroRouter:
+def build_macro_router(settings: Settings) -> MacroRouter:
     if settings.tmap_use_live:
         return TmapMacroRouter(settings=settings)
 
@@ -174,6 +176,76 @@ def get_macro_router_name(settings: Settings) -> str:
         return "live-tmap-adapter"
 
     return "demo-tmap-adapter"
+
+
+def build_transit_preview_score_seconds(
+    skeleton: TransitSkeleton,
+    walk_routes: list[WalkingRoute],
+) -> int:
+    return transit_route_score_seconds(skeleton) + sum(
+        walk.segment.metrics.duration_seconds for walk in walk_routes
+    )
+
+
+def direct_walk_selection_limit_seconds(
+    transit_score_seconds: int,
+    preferences: RoutingPreferences,
+) -> float:
+    vulnerability_factor = clamp(
+        (1.35 - preferences.walking_speed_mps) / 0.70,
+        0,
+        1,
+    )
+    return transit_score_seconds * (1 - 0.25 * vulnerability_factor)
+
+
+def build_route_preview_response(
+    *,
+    settings: Settings,
+    origin: Place,
+    destination: Place,
+    segments: list[RouteSegment],
+    walk_routes: list[WalkingRoute],
+    transit_legs: tuple[TransitLegSkeleton, ...],
+    walk_sources: list[str],
+) -> RoutePreviewResponse:
+    markers = [
+        RouteMarker(
+            id="origin",
+            kind="origin",
+            title=origin.name,
+            coordinate=origin.coordinate,
+            icon="origin",
+        ),
+        RouteMarker(
+            id="destination",
+            kind="destination",
+            title=destination.name,
+            coordinate=destination.coordinate,
+            icon="destination",
+        ),
+    ]
+    for index, transit_leg in enumerate(transit_legs, start=1):
+        markers.extend(build_transit_stop_markers(transit_leg, f"transit-{index}", index))
+    for walk_route in walk_routes:
+        markers.extend(walk_route.markers)
+
+    all_points = [point for segment in segments for point in segment.geometry]
+    southwest, northeast = viewport_for(all_points)
+
+    return RoutePreviewResponse(
+        route_id=uuid4(),
+        summary=build_summary(segments),
+        segments=segments,
+        markers=markers,
+        viewport=Viewport(southwest=southwest, northeast=northeast),
+        debug=RouteDebug(
+            macro_router=get_macro_router_name(settings),
+            micro_router=build_micro_router_debug_name(walk_sources),
+            tmap_live_sync=settings.tmap_use_live and settings.tmap_app_key is not None,
+            note=build_debug_note(walk_sources),
+        ),
+    )
 
 
 def can_use_postgresql_database(settings: Settings) -> bool:
@@ -269,6 +341,10 @@ def build_debug_note(walk_sources: list[str]) -> str:
         "Route preview uses pgRouting when endpoints snap to the MVP graph; "
         "out-of-coverage walking segments fall back to the demo router."
     )
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
 
 
 def get_transit_legs(skeleton: TransitSkeleton) -> tuple[TransitLegSkeleton, ...]:

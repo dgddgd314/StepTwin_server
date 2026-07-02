@@ -74,7 +74,38 @@ def test_build_osm_edge_rows_splits_ways_into_graph_edges() -> None:
     assert [row["id"] for row in rows] == [build_osm_edge_id(100, 0), build_osm_edge_id(100, 1)]
     assert [row["source"] for row in rows] == [1, 2]
     assert [row["target"] for row in rows] == [2, 3]
-    assert all(row["distance_meters"] > 0 for row in rows)
+    distances = [row["distance_meters"] for row in rows]
+    assert all(isinstance(distance, int | float) and distance > 0 for distance in distances)
+
+
+def test_crossing_edges_get_crossing_length_without_wait_seed() -> None:
+    dataset = parse_overpass_walk_network_payload(
+        {
+            "elements": [
+                {"type": "node", "id": 1, "lat": 37.0, "lon": 127.0},
+                {"type": "node", "id": 2, "lat": 37.0001, "lon": 127.0001},
+                {
+                    "type": "way",
+                    "id": 300,
+                    "nodes": [1, 2],
+                    "tags": {
+                        "highway": "footway",
+                        "footway": "crossing",
+                        "crossing": "traffic_signals",
+                    },
+                },
+            ]
+        },
+        name="sample",
+        bbox=(37.0, 127.0, 37.1, 127.1),
+    )
+
+    rows, skipped_count = build_osm_edge_rows(dataset)
+
+    assert skipped_count == 0
+    assert rows[0]["crossing_type"] == "signalized"
+    assert rows[0]["crossing_length_meters"] == rows[0]["distance_meters"]
+    assert rows[0]["crossing_wait_seconds"] is None
 
 
 def test_walkable_way_filter_blocks_private_and_non_pedestrian_highways() -> None:

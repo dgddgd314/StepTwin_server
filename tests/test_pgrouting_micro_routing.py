@@ -21,6 +21,7 @@ def test_cost_profile_converts_user_preferences_to_edge_coefficients() -> None:
             stair_weight=1.5,
             slope_weight=0.7,
             corner_weight=0.4,
+            crowding_weight=0.6,
             walking_speed_mps=1.2,
             max_extra_walk_ratio=0.25,
         )
@@ -30,6 +31,7 @@ def test_cost_profile_converts_user_preferences_to_edge_coefficients() -> None:
     assert profile.stair_penalty_seconds_per_count == 720
     assert profile.slope_penalty_seconds_per_meter_grade == pytest.approx(3.15)
     assert profile.corner_penalty_seconds_per_count == pytest.approx(7.2)
+    assert profile.crowding_penalty_fraction == pytest.approx(0.36)
     assert profile.shade_reward_fraction == pytest.approx(0.28)
     assert profile.min_cost_fraction_of_base == 0.35
     assert profile.max_extra_walk_ratio == 0.25
@@ -43,6 +45,7 @@ def test_weighted_edges_sql_matches_pgrouting_contract() -> None:
             stair_weight=1,
             slope_weight=1,
             corner_weight=1,
+            crowding_weight=1,
         )
     )
 
@@ -57,7 +60,11 @@ def test_weighted_edges_sql_matches_pgrouting_contract() -> None:
     assert '* 600' in sql
     assert '* 4.5' in sql
     assert '* 18' in sql
+    assert '* 0.6' in sql
     assert '* 0.35' in sql
+    assert 'edge."crowding_score"' in sql
+    assert 'edge."crossing_wait_seconds"' in sql
+    assert 'COALESCE(edge."crossing_type", \'none\') <> \'none\'' in sql
 
 
 def test_route_query_runs_weighted_and_shortest_candidates_in_one_statement() -> None:
@@ -103,6 +110,7 @@ def test_build_route_from_rows_maps_geometry_and_metrics() -> None:
             "shade_score": 0.8,
             "corner_count": 2,
             "slope_grade": 0.05,
+            "crowding_score": 0.4,
             "geometry_geojson": (
                 '{"type":"LineString","coordinates":[[126.0,37.0],[126.1,37.1]]}'
             ),
@@ -119,6 +127,7 @@ def test_build_route_from_rows_maps_geometry_and_metrics() -> None:
             "shade_score": 0.3,
             "corner_count": 1,
             "slope_grade": 0.02,
+            "crowding_score": 0.2,
             "geometry_geojson": (
                 '{"type":"LineString","coordinates":[[126.1,37.1],[126.2,37.2]]}'
             ),

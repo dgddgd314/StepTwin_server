@@ -43,7 +43,7 @@ async def optimize_walk_route(
                 session,
                 request.start.coordinate,
                 request.end.coordinate,
-                request.preferences,
+                request.effective_preferences,
                 graph_config=build_walk_route_graph_config(settings),
             )
     except PgRoutingSnapError as exc:

@@ -97,14 +97,10 @@ Content-Type: application/json
       "longitude": 126.9882
     }
   },
-  "preferences": {
-    "avoid_stairs": true,
-    "shade_weight": 0.9,
-    "stair_weight": 1.0,
-    "slope_weight": 0.7,
-    "corner_weight": 0.4,
-    "walking_speed_mps": 1.15,
-    "max_extra_walk_ratio": 0.2
+  "vulnerabilities": {
+    "speed_vulnerability": 0.4,
+    "turn_vulnerability": 0.2,
+    "strength_vulnerability": 0.7
   }
 }
 ```
@@ -119,13 +115,36 @@ Content-Type: application/json
 | `destination.name` | string | yes | Human-readable destination label. |
 | `destination.coordinate.latitude` | number | yes | Latitude in WGS84. |
 | `destination.coordinate.longitude` | number | yes | Longitude in WGS84. |
-| `preferences.avoid_stairs` | boolean | no | Whether to penalize stairs. Default: `true`. |
-| `preferences.shade_weight` | number | no | Shade preference from `0` to `1`. Default: `0.8`. |
-| `preferences.stair_weight` | number | no | Stair penalty strength from `0` to `3`. Default: `1.0`. |
-| `preferences.slope_weight` | number | no | Slope penalty strength from `0` to `3`. Default: `0.7`. |
-| `preferences.corner_weight` | number | no | Corner/turn penalty strength from `0` to `3`. Default: `0.4`. |
-| `preferences.walking_speed_mps` | number | no | Walking speed for duration estimates. Default: `1.15`. |
-| `preferences.max_extra_walk_ratio` | number | no | Allowed detour ratio from `0` to `1`. Default: `0.2`. |
+| `vulnerabilities.speed_vulnerability` | number | no | Speed vulnerability from `0` to `1`. Default: `0`. |
+| `vulnerabilities.turn_vulnerability` | number | no | Turn/direction-change vulnerability from `0` to `1`. Default: `0`. |
+| `vulnerabilities.strength_vulnerability` | number | no | Strength/stair/slope vulnerability from `0` to `1`. Default: `0`. |
+
+`preferences` is still accepted for backend/debug callers, but Android should send only
+`vulnerabilities`. When `vulnerabilities` is present, the backend ignores raw `preferences` and
+derives the internal routing preferences.
+
+### Vulnerability Mapping
+
+Let:
+
+```text
+S = speed_vulnerability
+T = turn_vulnerability
+M = strength_vulnerability
+```
+
+The backend derives internal preferences as:
+
+```text
+avoid_stairs = M >= 0.45 or S >= 0.65
+walking_speed_mps = clamp(1.35 - 0.50*S - 0.20*M, 0.65, 1.35)
+stair_weight = clamp(0.6 + 1.8*M + 0.6*S, 0, 3)
+slope_weight = clamp(0.4 + 1.4*M + 0.6*S, 0, 3)
+corner_weight = clamp(0.2 + 2.0*T + 0.3*S, 0, 3)
+shade_weight = clamp(0.45 + 0.25*S + 0.20*M, 0, 1)
+crowding_weight = clamp(0.3 + 0.8*T + 0.4*S + 0.3*M, 0, 3)
+max_extra_walk_ratio = clamp(0.12 + 0.08*M + 0.07*T - 0.04*S, 0.08, 0.30)
+```
 
 Coordinate order is always:
 
@@ -156,6 +175,49 @@ is:
 Walking segments use pgRouting when endpoints snap to the configured OSM pedestrian graph tables.
 Out-of-coverage walking segments fall back to the in-process demo pedestrian router. The Android
 response contract remains `segments[].geometry` plus `markers[]`.
+
+When transit candidates are available, the backend still compares them against a direct walking
+route. A healthy user may receive a single `custom_walk` segment when direct walking is cheaper than
+the transit route after transfer, boarding, and bus-reliability penalties.
+
+### Walking Cost Formula
+
+The backend scores each walking edge in seconds:
+
+```text
+base_seconds = distance_meters / walking_speed_mps
+score =
+  base_seconds
+  + stairs_count * 240 * stair_weight
+  + avoid_stairs_extra
+  + distance_meters * slope_grade * 4.5 * slope_weight
+  + corner_count * 18 * corner_weight
+  + base_seconds * crowding_score * 0.6 * crowding_weight
+  + crossing_wait_seconds
+  - base_seconds * shade_score * 0.35 * shade_weight
+```
+
+`avoid_stairs_extra` is `360 * stairs_count` when `avoid_stairs=true`. `crowding_score` is a
+normalized `0..1` value derived from Seoul S-DoT `VISITOR_COUNT`; higher values make crowded edges
+less attractive. The score is clamped to at least `base_seconds * 0.35` so rewards cannot make an
+edge unrealistically cheap.
+
+Transit candidates are ranked with:
+
+```text
+transit_score =
+  transit_duration_seconds
+  + transfer_count * 180
+  + boarding_count * 90
+  + bus_leg_count * 60
+  + bus_leg_count * 180
+  + bus_to_bus_transfer_count * 120
+  + bus_duration_seconds * 0.25
+```
+
+For final route preview selection, access/transfer/egress walking durations are added to
+`transit_score`. For slower or stronger-vulnerability users, direct walking must be clearly faster
+than transit before the response uses walking-only.
 
 ### Response Body
 
@@ -391,6 +453,24 @@ Confirmed TMAP endpoint notes are tracked in:
 
 ```text
 docs/tmap-transit-api.md
+```
+
+## Backend Seoul S-DoT Configuration
+
+The backend maps Seoul OpenAPI S-DoT request parameters like this:
+
+| Seoul parameter | Backend setting | Default |
+| --- | --- | --- |
+| `KEY` | `SEOUL_OPENAPI_KEY` | empty |
+| `TYPE` | `SEOUL_SDOT_TYPE` | `json` |
+| `SERVICE` | `SEOUL_SDOT_SERVICE` | `sDoTPeople` |
+| `START_INDEX` | `SEOUL_SDOT_START_INDEX` | `1` |
+| `END_INDEX` | `SEOUL_SDOT_END_INDEX` | `100` |
+
+Example URL shape:
+
+```text
+http://openapi.seoul.go.kr:8088/<KEY>/json/sDoTPeople/1/100/
 ```
 
 Confirmed TMAP endpoint notes are tracked in:

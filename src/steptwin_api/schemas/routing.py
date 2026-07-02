@@ -31,8 +31,40 @@ class RoutingPreferences(BaseModel):
     stair_weight: float = Field(default=1.0, ge=0, le=3)
     slope_weight: float = Field(default=0.7, ge=0, le=3)
     corner_weight: float = Field(default=0.4, ge=0, le=3)
+    crowding_weight: float = Field(default=0.5, ge=0, le=3)
     walking_speed_mps: float = Field(default=1.15, gt=0, le=2.5)
     max_extra_walk_ratio: float = Field(default=0.2, ge=0, le=1)
+
+
+class ClientVulnerabilities(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    speed_vulnerability: float = Field(default=0, ge=0, le=1)
+    turn_vulnerability: float = Field(default=0, ge=0, le=1)
+    strength_vulnerability: float = Field(default=0, ge=0, le=1)
+
+
+def derive_routing_preferences(
+    vulnerabilities: ClientVulnerabilities,
+) -> RoutingPreferences:
+    speed = vulnerabilities.speed_vulnerability
+    turn = vulnerabilities.turn_vulnerability
+    strength = vulnerabilities.strength_vulnerability
+
+    return RoutingPreferences(
+        avoid_stairs=strength >= 0.45 or speed >= 0.65,
+        walking_speed_mps=clamp(1.35 - 0.50 * speed - 0.20 * strength, 0.65, 1.35),
+        stair_weight=clamp(0.6 + 1.8 * strength + 0.6 * speed, 0, 3),
+        slope_weight=clamp(0.4 + 1.4 * strength + 0.6 * speed, 0, 3),
+        corner_weight=clamp(0.2 + 2.0 * turn + 0.3 * speed, 0, 3),
+        shade_weight=clamp(0.45 + 0.25 * speed + 0.20 * strength, 0, 1),
+        crowding_weight=clamp(0.3 + 0.8 * turn + 0.4 * speed + 0.3 * strength, 0, 3),
+        max_extra_walk_ratio=clamp(0.12 + 0.08 * strength + 0.07 * turn - 0.04 * speed, 0.08, 0.30),
+    )
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
 
 
 class RoutePreviewRequest(BaseModel):
@@ -41,6 +73,14 @@ class RoutePreviewRequest(BaseModel):
     origin: Place
     destination: Place
     preferences: RoutingPreferences = Field(default_factory=RoutingPreferences)
+    vulnerabilities: ClientVulnerabilities | None = None
+
+    @property
+    def effective_preferences(self) -> RoutingPreferences:
+        if self.vulnerabilities is None:
+            return self.preferences
+
+        return derive_routing_preferences(self.vulnerabilities)
 
 
 class RenderStyle(BaseModel):
