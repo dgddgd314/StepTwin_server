@@ -58,6 +58,8 @@ def test_weighted_edges_sql_matches_pgrouting_contract() -> None:
     assert '* 4.5' in sql
     assert '* 18' in sql
     assert '* 0.35' in sql
+    assert 'edge."crossing_wait_seconds"' in sql
+    assert 'COALESCE(edge."crossing_type", \'none\') <> \'none\'' in sql
 
 
 def test_route_query_runs_weighted_and_shortest_candidates_in_one_statement() -> None:

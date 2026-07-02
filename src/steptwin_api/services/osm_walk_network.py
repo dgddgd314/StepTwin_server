@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import httpx
 from sqlalchemy import text
@@ -33,7 +33,21 @@ WalkableHighway = Literal[
     "track",
 ]
 
-WALKABLE_HIGHWAYS: set[str] = set(cast(tuple[str, ...], WalkableHighway.__args__))
+WALKABLE_HIGHWAYS: set[WalkableHighway] = {
+    "footway",
+    "pedestrian",
+    "path",
+    "steps",
+    "living_street",
+    "residential",
+    "service",
+    "unclassified",
+    "tertiary",
+    "secondary",
+    "primary",
+    "cycleway",
+    "track",
+}
 BLOCKED_VALUES = {"no", "private", "permissive_no"}
 
 
@@ -280,6 +294,20 @@ async def prepare_osm_walk_tables(session: AsyncSession) -> None:
     )
     await session.execute(
         text(
+            f'ALTER TABLE "{OSM_EDGE_TABLE}" '
+            'ADD COLUMN IF NOT EXISTS "crossing_length_meters" double precision '
+            'CHECK ("crossing_length_meters" IS NULL OR "crossing_length_meters" > 0)'
+        )
+    )
+    await session.execute(
+        text(
+            f'ALTER TABLE "{OSM_EDGE_TABLE}" '
+            'ADD COLUMN IF NOT EXISTS "crossing_wait_seconds" double precision '
+            'CHECK ("crossing_wait_seconds" IS NULL OR "crossing_wait_seconds" >= 0)'
+        )
+    )
+    await session.execute(
+        text(
             f'CREATE INDEX IF NOT EXISTS "{OSM_VERTEX_TABLE}_geom_gix" '
             f'ON "{OSM_VERTEX_TABLE}" USING gist ("geom")'
         )
@@ -333,6 +361,10 @@ CREATE TABLE IF NOT EXISTS "{OSM_EDGE_TABLE}" (
     "roughness_score" double precision NOT NULL DEFAULT 0
         CHECK ("roughness_score" >= 0 AND "roughness_score" <= 1),
     "crossing_type" text NOT NULL DEFAULT 'none',
+    "crossing_length_meters" double precision
+        CHECK ("crossing_length_meters" IS NULL OR "crossing_length_meters" > 0),
+    "crossing_wait_seconds" double precision
+        CHECK ("crossing_wait_seconds" IS NULL OR "crossing_wait_seconds" >= 0),
     "surface_type" text NOT NULL DEFAULT 'unknown',
     "width_meters" double precision CHECK ("width_meters" IS NULL OR "width_meters" > 0),
     "curb_cut" boolean,
@@ -384,6 +416,8 @@ INSERT INTO "{OSM_EDGE_TABLE}" (
     "slope_grade",
     "roughness_score",
     "crossing_type",
+    "crossing_length_meters",
+    "crossing_wait_seconds",
     "surface_type",
     "width_meters",
     "curb_cut",
@@ -406,6 +440,8 @@ VALUES (
     :slope_grade,
     :roughness_score,
     :crossing_type,
+    :crossing_length_meters,
+    :crossing_wait_seconds,
     :surface_type,
     :width_meters,
     :curb_cut,
@@ -427,6 +463,8 @@ ON CONFLICT ("id") DO UPDATE SET
     "slope_grade" = EXCLUDED."slope_grade",
     "roughness_score" = EXCLUDED."roughness_score",
     "crossing_type" = EXCLUDED."crossing_type",
+    "crossing_length_meters" = EXCLUDED."crossing_length_meters",
+    "crossing_wait_seconds" = EXCLUDED."crossing_wait_seconds",
     "surface_type" = EXCLUDED."surface_type",
     "width_meters" = EXCLUDED."width_meters",
     "curb_cut" = EXCLUDED."curb_cut",
@@ -469,6 +507,7 @@ def build_osm_edge_rows(dataset: OsmWalkDataset) -> tuple[list[dict[str, object]
                 skipped_edge_count += 1
                 continue
 
+            crossing_type = infer_crossing_type(way.tags)
             edge_rows.append(
                 {
                     "id": build_osm_edge_id(way.id, index),
@@ -482,7 +521,9 @@ def build_osm_edge_rows(dataset: OsmWalkDataset) -> tuple[list[dict[str, object]
                     "corner_count": 0,
                     "slope_grade": infer_slope_grade(way.tags),
                     "roughness_score": infer_roughness_score(way.tags),
-                    "crossing_type": infer_crossing_type(way.tags),
+                    "crossing_type": crossing_type,
+                    "crossing_length_meters": distance if crossing_type != "none" else None,
+                    "crossing_wait_seconds": None,
                     "surface_type": infer_surface_type(way.tags),
                     "width_meters": parse_float(way.tags.get("width")),
                     "curb_cut": None,

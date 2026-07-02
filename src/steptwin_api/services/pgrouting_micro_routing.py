@@ -46,6 +46,8 @@ class PgRoutingGraphConfig:
     shade_column: str = "shade_score"
     corner_column: str = "corner_count"
     slope_column: str = "slope_grade"
+    crossing_type_column: str = "crossing_type"
+    crossing_wait_seconds_column: str = "crossing_wait_seconds"
     graph_srid: int = 4326
     shade_marker_threshold: float = 0.45
 
@@ -369,6 +371,8 @@ def build_weighted_edges_sql(
     shade = quote_identifier(graph_config.shade_column)
     corners = quote_identifier(graph_config.corner_column)
     slope = quote_identifier(graph_config.slope_column)
+    crossing_type = quote_identifier(graph_config.crossing_type_column)
+    crossing_wait = quote_identifier(graph_config.crossing_wait_seconds_column)
 
     walking_speed = checked_sql_float(cost_profile.walking_speed_mps, "walking_speed_mps")
     stair_penalty = checked_sql_float(
@@ -399,6 +403,11 @@ GREATEST(
             * GREATEST(COALESCE(edge.{slope}, 0), 0)::float8
             * {slope_penalty}
         + GREATEST(COALESCE(edge.{corners}, 0), 0)::float8 * {corner_penalty}
+        + CASE
+            WHEN COALESCE(edge.{crossing_type}, 'none') <> 'none'
+                THEN GREATEST(COALESCE(edge.{crossing_wait}, 0), 0)::float8
+            ELSE 0
+        END
         - {base_seconds}
             * LEAST(GREATEST(COALESCE(edge.{shade}, 0), 0), 1)::float8
             * {shade_reward}
@@ -640,6 +649,8 @@ def validate_graph_config(graph_config: PgRoutingGraphConfig) -> None:
         graph_config.shade_column,
         graph_config.corner_column,
         graph_config.slope_column,
+        graph_config.crossing_type_column,
+        graph_config.crossing_wait_seconds_column,
     ):
         quote_identifier(column)
 
