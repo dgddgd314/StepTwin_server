@@ -210,9 +210,9 @@ transit_score =
   + transfer_count * 180
   + boarding_count * 90
   + bus_leg_count * 60
-  + bus_leg_count * 180
+  + bus_leg_count * 210
   + bus_to_bus_transfer_count * 120
-  + bus_duration_seconds * 0.25
+  + bus_duration_seconds * 0.30
 ```
 
 For final route preview selection, access/transfer/egress walking durations are added to
