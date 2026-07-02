@@ -46,6 +46,7 @@ class PgRoutingGraphConfig:
     shade_column: str = "shade_score"
     corner_column: str = "corner_count"
     slope_column: str = "slope_grade"
+    crowding_column: str = "crowding_score"
     crossing_type_column: str = "crossing_type"
     crossing_wait_seconds_column: str = "crossing_wait_seconds"
     graph_srid: int = 4326
@@ -61,6 +62,7 @@ class PgRoutingCostProfile:
     stair_penalty_seconds_per_count: float
     slope_penalty_seconds_per_meter_grade: float
     corner_penalty_seconds_per_count: float
+    crowding_penalty_fraction: float
     shade_reward_fraction: float
     min_cost_fraction_of_base: float
     max_extra_walk_ratio: float
@@ -76,6 +78,7 @@ class PgRoutingCostProfile:
             stair_penalty_seconds_per_count=stair_penalty,
             slope_penalty_seconds_per_meter_grade=4.5 * preferences.slope_weight,
             corner_penalty_seconds_per_count=18 * preferences.corner_weight,
+            crowding_penalty_fraction=0.6 * preferences.crowding_weight,
             shade_reward_fraction=0.35 * preferences.shade_weight,
             min_cost_fraction_of_base=0.35,
             max_extra_walk_ratio=preferences.max_extra_walk_ratio,
@@ -101,6 +104,7 @@ class PgRoutingRouteStep:
     shade_score: float
     corner_count: int
     slope_grade: float
+    crowding_score: float
     geometry: tuple[Coordinate, ...]
 
 
@@ -268,6 +272,7 @@ def build_pgrouting_route_query(graph_config: PgRoutingGraphConfig) -> str:
     shade = quote_identifier(graph_config.shade_column)
     corners = quote_identifier(graph_config.corner_column)
     slope = quote_identifier(graph_config.slope_column)
+    crowding = quote_identifier(graph_config.crowding_column)
 
     return f"""
 WITH
@@ -343,6 +348,7 @@ SELECT
     LEAST(GREATEST(COALESCE(edge.{shade}, 0), 0), 1)::float8 AS shade_score,
     COALESCE(edge.{corners}, 0)::integer AS corner_count,
     GREATEST(COALESCE(edge.{slope}, 0), 0)::float8 AS slope_grade,
+    LEAST(GREATEST(COALESCE(edge.{crowding}, 0), 0), 1)::float8 AS crowding_score,
     ST_AsGeoJSON(
         CASE
             WHEN selected_path.node = edge.{source}
@@ -371,6 +377,7 @@ def build_weighted_edges_sql(
     shade = quote_identifier(graph_config.shade_column)
     corners = quote_identifier(graph_config.corner_column)
     slope = quote_identifier(graph_config.slope_column)
+    crowding = quote_identifier(graph_config.crowding_column)
     crossing_type = quote_identifier(graph_config.crossing_type_column)
     crossing_wait = quote_identifier(graph_config.crossing_wait_seconds_column)
 
@@ -386,6 +393,10 @@ def build_weighted_edges_sql(
     corner_penalty = checked_sql_float(
         cost_profile.corner_penalty_seconds_per_count,
         "corner_penalty_seconds_per_count",
+    )
+    crowding_penalty = checked_sql_float(
+        cost_profile.crowding_penalty_fraction,
+        "crowding_penalty_fraction",
     )
     shade_reward = checked_sql_float(cost_profile.shade_reward_fraction, "shade_reward_fraction")
     min_cost_fraction = checked_sql_float(
@@ -403,6 +414,9 @@ GREATEST(
             * GREATEST(COALESCE(edge.{slope}, 0), 0)::float8
             * {slope_penalty}
         + GREATEST(COALESCE(edge.{corners}, 0), 0)::float8 * {corner_penalty}
+        + {base_seconds}
+            * LEAST(GREATEST(COALESCE(edge.{crowding}, 0), 0), 1)::float8
+            * {crowding_penalty}
         + CASE
             WHEN COALESCE(edge.{crossing_type}, 'none') <> 'none'
                 THEN GREATEST(COALESCE(edge.{crossing_wait}, 0), 0)::float8
@@ -531,6 +545,7 @@ def parse_route_step(row: Mapping[str, object]) -> PgRoutingRouteStep:
         shade_score=as_float(row["shade_score"], "shade_score"),
         corner_count=as_int(row["corner_count"], "corner_count"),
         slope_grade=as_float(row["slope_grade"], "slope_grade"),
+        crowding_score=as_float(row["crowding_score"], "crowding_score"),
         geometry=geometry,
     )
 
@@ -649,6 +664,7 @@ def validate_graph_config(graph_config: PgRoutingGraphConfig) -> None:
         graph_config.shade_column,
         graph_config.corner_column,
         graph_config.slope_column,
+        graph_config.crowding_column,
         graph_config.crossing_type_column,
         graph_config.crossing_wait_seconds_column,
     ):

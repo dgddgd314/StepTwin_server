@@ -74,14 +74,10 @@ For long routes such as Seoul Station to Hoegi Station, Android must call this e
       "longitude": 127.057936
     }
   },
-  "preferences": {
-    "avoid_stairs": true,
-    "shade_weight": 0.8,
-    "stair_weight": 1.0,
-    "slope_weight": 0.7,
-    "corner_weight": 0.4,
-    "walking_speed_mps": 1.15,
-    "max_extra_walk_ratio": 0.2
+  "vulnerabilities": {
+    "speed_vulnerability": 0.4,
+    "turn_vulnerability": 0.2,
+    "strength_vulnerability": 0.7
   }
 }
 ```

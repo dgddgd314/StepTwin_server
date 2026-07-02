@@ -2,11 +2,14 @@ import pytest
 from pydantic import ValidationError
 
 from steptwin_api.core.config import Settings
-from steptwin_api.schemas.routing import Coordinate, Place
+from steptwin_api.schemas.routing import Coordinate, Place, TransitDetails
 from steptwin_api.services.macro_routing import (
+    TransitLegSkeleton,
+    TransitSkeleton,
     build_tmap_route_request_body,
     build_tmap_route_request_headers,
     parse_tmap_route_payload,
+    transit_route_score_seconds,
 )
 
 
@@ -222,3 +225,175 @@ def test_parse_tmap_route_payload_returns_none_when_no_transit_leg_exists() -> N
     payload = {"metaData": {"plan": {"itineraries": [{"legs": [{"mode": "WALK"}]}]}}}
 
     assert parse_tmap_route_payload(payload) is None
+
+
+def test_parse_tmap_route_payload_penalizes_transfer_heavy_bus_routes() -> None:
+    bus_leg = {
+        "mode": "BUS",
+        "route": "Blue 2012",
+        "routeColor": "0068B7",
+        "routeId": "BUS:2012",
+        "distance": 600,
+        "sectionTime": 180,
+        "start": {"name": "Bus Start", "lon": 127.0, "lat": 37.0},
+        "end": {"name": "Bus End", "lon": 127.01, "lat": 37.01},
+    }
+    payload = {
+        "metaData": {
+            "plan": {
+                "itineraries": [
+                    {
+                        "legs": [
+                            bus_leg,
+                            {
+                                **bus_leg,
+                                "route": "Green 7017",
+                                "routeId": "BUS:7017",
+                                "start": {"name": "Bus End", "lon": 127.01, "lat": 37.01},
+                                "end": {"name": "Transfer", "lon": 127.02, "lat": 37.02},
+                            },
+                            {
+                                **bus_leg,
+                                "route": "Town 03",
+                                "routeId": "BUS:03",
+                                "start": {"name": "Transfer", "lon": 127.02, "lat": 37.02},
+                                "end": {"name": "Destination Stop", "lon": 127.03, "lat": 37.03},
+                            },
+                        ]
+                    },
+                    {
+                        "legs": [
+                            {
+                                "mode": "SUBWAY",
+                                "route": "Line 2",
+                                "routeColor": "00A84D",
+                                "routeId": "SUBWAY:2",
+                                "distance": 3000,
+                                "sectionTime": 1200,
+                                "start": {"name": "Subway Start", "lon": 127.0, "lat": 37.0},
+                                "end": {
+                                    "name": "Subway End",
+                                    "lon": 127.03,
+                                    "lat": 37.03,
+                                },
+                            }
+                        ]
+                    },
+                ]
+            }
+        }
+    }
+
+    skeleton = parse_tmap_route_payload(payload)
+
+    assert skeleton is not None
+    assert skeleton.transit.route_name == "Line 2"
+    assert skeleton.duration_seconds == 1200
+    assert transit_route_score_seconds(skeleton) == 1290
+
+
+def test_transit_route_score_penalizes_single_bus_boarding() -> None:
+    start = Place(name="Bus Start", coordinate=Coordinate(latitude=37.0, longitude=127.0))
+    end = Place(name="Bus End", coordinate=Coordinate(latitude=37.01, longitude=127.01))
+    bus_leg = TransitLegSkeleton(
+        boarding_stop=start,
+        alighting_stop=end,
+        geometry=[start.coordinate, end.coordinate],
+        transit=TransitDetails(
+            mode="bus",
+            route_name="Blue 1",
+            bus_number="1",
+            boarding_stop=start.name,
+            alighting_stop=end.name,
+        ),
+        distance_meters=1000,
+        duration_seconds=600,
+        render_color="#0068B7",
+    )
+    skeleton = TransitSkeleton(
+        boarding_stop=start,
+        alighting_stop=end,
+        geometry=bus_leg.geometry,
+        transit=bus_leg.transit,
+        distance_meters=1000,
+        duration_seconds=600,
+        render_color="#0068B7",
+        transit_legs=(bus_leg,),
+    )
+
+    assert transit_route_score_seconds(skeleton) == 1080
+
+
+def test_transit_route_score_penalizes_bus_to_bus_transfer_more_than_bus_to_subway() -> None:
+    first_start = Place(name="First Start", coordinate=Coordinate(latitude=37.0, longitude=127.0))
+    transfer = Place(name="Transfer", coordinate=Coordinate(latitude=37.01, longitude=127.01))
+    second_end = Place(name="Second End", coordinate=Coordinate(latitude=37.02, longitude=127.02))
+    bus_leg = TransitLegSkeleton(
+        boarding_stop=first_start,
+        alighting_stop=transfer,
+        geometry=[first_start.coordinate, transfer.coordinate],
+        transit=TransitDetails(
+            mode="bus",
+            route_name="Blue 1",
+            bus_number="1",
+            boarding_stop=first_start.name,
+            alighting_stop=transfer.name,
+        ),
+        distance_meters=1000,
+        duration_seconds=300,
+        render_color="#0068B7",
+    )
+    second_bus_leg = TransitLegSkeleton(
+        boarding_stop=transfer,
+        alighting_stop=second_end,
+        geometry=[transfer.coordinate, second_end.coordinate],
+        transit=TransitDetails(
+            mode="bus",
+            route_name="Blue 2",
+            bus_number="2",
+            boarding_stop=transfer.name,
+            alighting_stop=second_end.name,
+        ),
+        distance_meters=1000,
+        duration_seconds=300,
+        render_color="#0068B7",
+    )
+    subway_leg = TransitLegSkeleton(
+        boarding_stop=transfer,
+        alighting_stop=second_end,
+        geometry=[transfer.coordinate, second_end.coordinate],
+        transit=TransitDetails(
+            mode="subway",
+            route_name="Line 1",
+            subway_line="Line 1",
+            boarding_stop=transfer.name,
+            alighting_stop=second_end.name,
+        ),
+        distance_meters=1000,
+        duration_seconds=300,
+        render_color="#0052A4",
+    )
+
+    bus_to_bus = TransitSkeleton(
+        boarding_stop=first_start,
+        alighting_stop=second_end,
+        geometry=[first_start.coordinate, transfer.coordinate, second_end.coordinate],
+        transit=bus_leg.transit,
+        distance_meters=2000,
+        duration_seconds=600,
+        render_color="#0068B7",
+        transit_legs=(bus_leg, second_bus_leg),
+    )
+    bus_to_subway = TransitSkeleton(
+        boarding_stop=first_start,
+        alighting_stop=second_end,
+        geometry=[first_start.coordinate, transfer.coordinate, second_end.coordinate],
+        transit=bus_leg.transit,
+        distance_meters=2000,
+        duration_seconds=600,
+        render_color="#0068B7",
+        transit_legs=(bus_leg, subway_leg),
+    )
+
+    assert transit_route_score_seconds(bus_to_subway) == 1275
+    assert transit_route_score_seconds(bus_to_bus) == 1710

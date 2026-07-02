@@ -2,7 +2,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from steptwin_api.schemas.routing import Coordinate, Place, RoutingPreferences
+from steptwin_api.schemas.routing import (
+    ClientVulnerabilities,
+    Coordinate,
+    Place,
+    RoutingPreferences,
+    derive_routing_preferences,
+)
 
 WalkRouteKind = Literal["weighted", "shortest_fallback", "same_vertex"]
 
@@ -13,6 +19,14 @@ class WalkRouteOptimizeRequest(BaseModel):
     start: Place
     end: Place
     preferences: RoutingPreferences = Field(default_factory=RoutingPreferences)
+    vulnerabilities: ClientVulnerabilities | None = None
+
+    @property
+    def effective_preferences(self) -> RoutingPreferences:
+        if self.vulnerabilities is None:
+            return self.preferences
+
+        return derive_routing_preferences(self.vulnerabilities)
 
 
 class WalkRouteSnappedEndpoint(BaseModel):

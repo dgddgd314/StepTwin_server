@@ -11,6 +11,12 @@ from steptwin_api.services.geometry import distance_meters, interpolate
 
 JsonValue = str | int
 TmapNormalizedMode = Literal["bus", "subway"]
+TRANSFER_PENALTY_SECONDS = 180
+BOARDING_PENALTY_SECONDS = 90
+BUS_LEG_PENALTY_SECONDS = 60
+BUS_BOARDING_PENALTY_SECONDS = 180
+BUS_TO_BUS_TRANSFER_PENALTY_SECONDS = 120
+BUS_DURATION_PENALTY_FRACTION = 0.25
 
 
 @dataclass(frozen=True)
@@ -147,15 +153,46 @@ def parse_tmap_route_payload(payload: dict[str, Any]) -> TransitSkeleton | None:
     if itineraries is None:
         return None
 
+    candidates: list[TransitSkeleton] = []
     for itinerary in itineraries:
         if not isinstance(itinerary, dict):
             continue
 
         skeleton = parse_tmap_itinerary(itinerary)
         if skeleton is not None:
-            return skeleton
+            candidates.append(skeleton)
 
-    return None
+    if not candidates:
+        return None
+
+    return min(candidates, key=transit_route_score_seconds)
+
+
+def transit_route_score_seconds(skeleton: TransitSkeleton) -> int:
+    boarding_count = len(skeleton.transit_legs) if skeleton.transit_legs else 1
+    transfer_count = max(boarding_count - 1, 0)
+    bus_leg_count = sum(1 for leg in skeleton.transit_legs if leg.transit.mode == "bus")
+    bus_duration_seconds = sum(
+        leg.duration_seconds for leg in skeleton.transit_legs if leg.transit.mode == "bus"
+    )
+    bus_to_bus_transfer_count = sum(
+        1
+        for previous_leg, next_leg in zip(
+            skeleton.transit_legs,
+            skeleton.transit_legs[1:],
+            strict=False,
+        )
+        if previous_leg.transit.mode == "bus" and next_leg.transit.mode == "bus"
+    )
+    return (
+        skeleton.duration_seconds
+        + transfer_count * TRANSFER_PENALTY_SECONDS
+        + boarding_count * BOARDING_PENALTY_SECONDS
+        + bus_leg_count * BUS_LEG_PENALTY_SECONDS
+        + bus_leg_count * BUS_BOARDING_PENALTY_SECONDS
+        + bus_to_bus_transfer_count * BUS_TO_BUS_TRANSFER_PENALTY_SECONDS
+        + round(bus_duration_seconds * BUS_DURATION_PENALTY_FRACTION)
+    )
 
 
 def parse_tmap_itinerary(itinerary: dict[str, Any]) -> TransitSkeleton | None:

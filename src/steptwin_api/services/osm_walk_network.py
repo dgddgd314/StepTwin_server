@@ -308,6 +308,13 @@ async def prepare_osm_walk_tables(session: AsyncSession) -> None:
     )
     await session.execute(
         text(
+            f'ALTER TABLE "{OSM_EDGE_TABLE}" '
+            'ADD COLUMN IF NOT EXISTS "crowding_score" double precision NOT NULL DEFAULT 0 '
+            'CHECK ("crowding_score" >= 0 AND "crowding_score" <= 1)'
+        )
+    )
+    await session.execute(
+        text(
             f'CREATE INDEX IF NOT EXISTS "{OSM_VERTEX_TABLE}_geom_gix" '
             f'ON "{OSM_VERTEX_TABLE}" USING gist ("geom")'
         )
@@ -358,6 +365,8 @@ CREATE TABLE IF NOT EXISTS "{OSM_EDGE_TABLE}" (
         CHECK ("shade_score" >= 0 AND "shade_score" <= 1),
     "corner_count" integer NOT NULL DEFAULT 0 CHECK ("corner_count" >= 0),
     "slope_grade" double precision NOT NULL DEFAULT 0 CHECK ("slope_grade" >= 0),
+    "crowding_score" double precision NOT NULL DEFAULT 0
+        CHECK ("crowding_score" >= 0 AND "crowding_score" <= 1),
     "roughness_score" double precision NOT NULL DEFAULT 0
         CHECK ("roughness_score" >= 0 AND "roughness_score" <= 1),
     "crossing_type" text NOT NULL DEFAULT 'none',
@@ -414,6 +423,7 @@ INSERT INTO "{OSM_EDGE_TABLE}" (
     "shade_score",
     "corner_count",
     "slope_grade",
+    "crowding_score",
     "roughness_score",
     "crossing_type",
     "crossing_length_meters",
@@ -438,6 +448,7 @@ VALUES (
     :shade_score,
     :corner_count,
     :slope_grade,
+    :crowding_score,
     :roughness_score,
     :crossing_type,
     :crossing_length_meters,
@@ -461,6 +472,7 @@ ON CONFLICT ("id") DO UPDATE SET
     "shade_score" = EXCLUDED."shade_score",
     "corner_count" = EXCLUDED."corner_count",
     "slope_grade" = EXCLUDED."slope_grade",
+    "crowding_score" = EXCLUDED."crowding_score",
     "roughness_score" = EXCLUDED."roughness_score",
     "crossing_type" = EXCLUDED."crossing_type",
     "crossing_length_meters" = EXCLUDED."crossing_length_meters",
@@ -520,6 +532,7 @@ def build_osm_edge_rows(dataset: OsmWalkDataset) -> tuple[list[dict[str, object]
                     "shade_score": infer_shade_score(way.tags),
                     "corner_count": 0,
                     "slope_grade": infer_slope_grade(way.tags),
+                    "crowding_score": 0.0,
                     "roughness_score": infer_roughness_score(way.tags),
                     "crossing_type": crossing_type,
                     "crossing_length_meters": distance if crossing_type != "none" else None,

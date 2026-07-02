@@ -41,6 +41,7 @@ class PedestrianEdge:
     shade_score: float = 0
     corner_count: int = 0
     slope_grade: float = 0
+    crowding_score: float = 0
     feature: str | None = None
 
 
@@ -91,6 +92,7 @@ class PedestrianCostProfile:
     stair_weight: float
     slope_weight: float
     corner_weight: float
+    crowding_weight: float
     walking_speed_mps: float
     max_extra_walk_ratio: float
 
@@ -102,6 +104,7 @@ class PedestrianCostProfile:
             stair_weight=preferences.stair_weight,
             slope_weight=preferences.slope_weight,
             corner_weight=preferences.corner_weight,
+            crowding_weight=preferences.crowding_weight,
             walking_speed_mps=preferences.walking_speed_mps,
             max_extra_walk_ratio=preferences.max_extra_walk_ratio,
         )
@@ -182,17 +185,17 @@ def build_segment_graph(start: Coordinate, end: Coordinate) -> PedestrianGraph:
         "end": PedestrianNode(id="end", coordinate=end),
     }
     edge_specs = [
-        ("start", "direct-mid", 1, 0.05, 1, 0.085, "stairs"),
-        ("direct-mid", "end", 0, 0.05, 1, 0.07, None),
-        ("start", "shade-a", 0, 0.85, 1, 0.025, "shade"),
-        ("shade-a", "shade-b", 0, 0.95, 1, 0.018, "shade"),
-        ("shade-b", "end", 0, 0.65, 1, 0.02, "shade"),
-        ("start", "smooth-mid", 0, 0.25, 0, 0.04, None),
-        ("smooth-mid", "end", 0, 0.25, 0, 0.04, None),
+        ("start", "direct-mid", 1, 0.05, 1, 0.085, 0.75, "stairs"),
+        ("direct-mid", "end", 0, 0.05, 1, 0.07, 0.65, None),
+        ("start", "shade-a", 0, 0.85, 1, 0.025, 0.15, "shade"),
+        ("shade-a", "shade-b", 0, 0.95, 1, 0.018, 0.1, "shade"),
+        ("shade-b", "end", 0, 0.65, 1, 0.02, 0.2, "shade"),
+        ("start", "smooth-mid", 0, 0.25, 0, 0.04, 0.35, None),
+        ("smooth-mid", "end", 0, 0.25, 0, 0.04, 0.35, None),
     ]
     edges = [
-        build_edge(nodes[start_id], nodes[end_id], stairs, shade, corners, slope, feature)
-        for start_id, end_id, stairs, shade, corners, slope, feature in edge_specs
+        build_edge(nodes[start_id], nodes[end_id], stairs, shade, corners, slope, crowding, feature)
+        for start_id, end_id, stairs, shade, corners, slope, crowding, feature in edge_specs
     ]
 
     return PedestrianGraph(nodes=nodes, edges=edges)
@@ -205,6 +208,7 @@ def build_edge(
     shade_score: float,
     corner_count: int,
     slope_grade: float,
+    crowding_score: float,
     feature: str | None,
 ) -> PedestrianEdge:
     geometry = [start.coordinate, end.coordinate]
@@ -217,6 +221,7 @@ def build_edge(
         shade_score=shade_score,
         corner_count=corner_count,
         slope_grade=slope_grade,
+        crowding_score=crowding_score,
         feature=feature,
     )
 
@@ -284,8 +289,16 @@ def edge_cost_seconds(edge: PedestrianEdge, profile: PedestrianCostProfile) -> f
 
     slope_penalty = edge.distance_meters * edge.slope_grade * 4.5 * profile.slope_weight
     corner_penalty = edge.corner_count * 18 * profile.corner_weight
+    crowding_penalty = base_seconds * edge.crowding_score * 0.6 * profile.crowding_weight
     shade_reward = base_seconds * edge.shade_score * 0.35 * profile.shade_weight
-    weighted_seconds = base_seconds + stair_penalty + slope_penalty + corner_penalty - shade_reward
+    weighted_seconds = (
+        base_seconds
+        + stair_penalty
+        + slope_penalty
+        + corner_penalty
+        + crowding_penalty
+        - shade_reward
+    )
     return max(base_seconds * 0.35, weighted_seconds)
 
 
