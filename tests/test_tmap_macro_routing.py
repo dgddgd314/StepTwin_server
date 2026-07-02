@@ -203,6 +203,14 @@ def test_parse_tmap_route_payload_builds_transit_skeleton_from_response_nodes() 
     assert skeleton.alighting_stop.name == "Destination Stop"
     assert skeleton.transit.mode == "subway"
     assert skeleton.transit.route_name == "Line 2 + Blue 2012"
+    assert skeleton.transit.subway_line == "Line 2"
+    assert skeleton.transit.bus_number == "2012"
+    assert len(skeleton.transit_legs) == 2
+    assert [leg.transit.mode for leg in skeleton.transit_legs] == ["subway", "bus"]
+    assert [leg.transit.subway_line for leg in skeleton.transit_legs] == ["Line 2", None]
+    assert [leg.transit.bus_number for leg in skeleton.transit_legs] == [None, "2012"]
+    assert [leg.render_color for leg in skeleton.transit_legs] == ["#00A84D", "#0068B7"]
+    assert skeleton.render_color == "#00A84D"
     assert skeleton.distance_meters == 4800
     assert skeleton.duration_seconds == 1020
     assert skeleton.geometry[0].longitude == 126.936928

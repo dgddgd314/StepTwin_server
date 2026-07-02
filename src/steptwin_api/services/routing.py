@@ -19,7 +19,12 @@ from steptwin_api.schemas.routing import (
     Viewport,
 )
 from steptwin_api.services.geometry import viewport_for
-from steptwin_api.services.macro_routing import DemoMacroRouter, TmapMacroRouter, TransitSkeleton
+from steptwin_api.services.macro_routing import (
+    DemoMacroRouter,
+    TmapMacroRouter,
+    TransitLegSkeleton,
+    TransitSkeleton,
+)
 from steptwin_api.services.micro_routing import DemoMicroRouter, WalkingRoute
 from steptwin_api.services.pgrouting_micro_routing import (
     PgRoutingError,
@@ -50,16 +55,8 @@ class RoutePreviewService:
             title="Stair-minimized first mile",
             preferences=request.preferences,
         )
-        last_mile, last_source = await self._build_walk(
-            segment_id="walk-last-mile",
-            start=skeleton.alighting_stop,
-            end=request.destination,
-            title="Shade-first last mile",
-            preferences=request.preferences,
-        )
-        transit_segment = build_transit_segment(skeleton)
-
-        segments = [first_mile.segment, transit_segment, last_mile.segment]
+        transit_legs = get_transit_legs(skeleton)
+        segments = [first_mile.segment]
         markers = [
             RouteMarker(
                 id="origin",
@@ -67,23 +64,40 @@ class RoutePreviewService:
                 title=request.origin.name,
                 coordinate=request.origin.coordinate,
                 icon="origin",
-            ),
-            RouteMarker(
-                id="boarding-stop",
-                kind="stop",
-                title=skeleton.boarding_stop.name,
-                coordinate=skeleton.boarding_stop.coordinate,
-                segment_id=transit_segment.id,
-                icon="transit-stop",
-            ),
-            RouteMarker(
-                id="alighting-stop",
-                kind="stop",
-                title=skeleton.alighting_stop.name,
-                coordinate=skeleton.alighting_stop.coordinate,
-                segment_id=transit_segment.id,
-                icon="transit-stop",
-            ),
+            )
+        ]
+        walk_sources = [first_source]
+
+        for index, transit_leg in enumerate(transit_legs, start=1):
+            if index > 1:
+                previous_leg = transit_legs[index - 2]
+                transfer_walk, transfer_source = await self._build_walk(
+                    segment_id=f"walk-transfer-{index - 1}",
+                    start=previous_leg.alighting_stop,
+                    end=transit_leg.boarding_stop,
+                    title="Transfer walk",
+                    preferences=request.preferences,
+                )
+                segments.append(transfer_walk.segment)
+                markers.extend(transfer_walk.markers)
+                walk_sources.append(transfer_source)
+
+            transit_segment = build_transit_segment(transit_leg, index=index)
+            segments.append(transit_segment)
+            markers.extend(build_transit_stop_markers(transit_leg, transit_segment.id, index))
+
+        last_mile, last_source = await self._build_walk(
+            segment_id="walk-last-mile",
+            start=transit_legs[-1].alighting_stop,
+            end=request.destination,
+            title="Shade-first last mile",
+            preferences=request.preferences,
+        )
+        segments.append(last_mile.segment)
+        walk_sources.append(last_source)
+
+        markers = [
+            *markers,
             RouteMarker(
                 id="destination",
                 kind="destination",
@@ -105,10 +119,10 @@ class RoutePreviewService:
             viewport=Viewport(southwest=southwest, northeast=northeast),
             debug=RouteDebug(
                 macro_router=get_macro_router_name(self._settings),
-                micro_router=build_micro_router_debug_name(first_source, last_source),
+                micro_router=build_micro_router_debug_name(walk_sources),
                 tmap_live_sync=self._settings.tmap_use_live
                 and self._settings.tmap_app_key is not None,
-                note=build_debug_note(first_source, last_source),
+                note=build_debug_note(walk_sources),
             ),
         )
 
@@ -235,20 +249,20 @@ def build_pgrouting_walk_markers(
     return markers
 
 
-def build_micro_router_debug_name(first_source: str, last_source: str) -> str:
-    if first_source == last_source == "pgrouting":
+def build_micro_router_debug_name(walk_sources: list[str]) -> str:
+    if all(source == "pgrouting" for source in walk_sources):
         return "postgis-pgrouting-pedestrian-router"
-    if first_source == last_source == "demo":
+    if all(source == "demo" for source in walk_sources):
         return "demo-weighted-pedestrian-router"
 
     return "mixed-pgrouting-demo-pedestrian-router"
 
 
-def build_debug_note(first_source: str, last_source: str) -> str:
-    if first_source == last_source == "pgrouting":
+def build_debug_note(walk_sources: list[str]) -> str:
+    if all(source == "pgrouting" for source in walk_sources):
         return (
             "Route preview uses the PostGIS pedestrian graph "
-            "pedestrian_vertices/pedestrian_edges for walking segments."
+            "configured by PEDESTRIAN_GRAPH_VERTEX_TABLE and PEDESTRIAN_GRAPH_EDGE_TABLE."
         )
 
     return (
@@ -257,14 +271,31 @@ def build_debug_note(first_source: str, last_source: str) -> str:
     )
 
 
-def build_transit_segment(skeleton: TransitSkeleton) -> RouteSegment:
+def get_transit_legs(skeleton: TransitSkeleton) -> tuple[TransitLegSkeleton, ...]:
+    if skeleton.transit_legs:
+        return skeleton.transit_legs
+
+    return (
+        TransitLegSkeleton(
+            boarding_stop=skeleton.boarding_stop,
+            alighting_stop=skeleton.alighting_stop,
+            geometry=skeleton.geometry,
+            transit=skeleton.transit,
+            distance_meters=skeleton.distance_meters,
+            duration_seconds=skeleton.duration_seconds,
+            render_color=skeleton.render_color,
+        ),
+    )
+
+
+def build_transit_segment(skeleton: TransitLegSkeleton, *, index: int = 1) -> RouteSegment:
     return RouteSegment(
-        id="transit-main",
+        id=f"transit-{index}",
         kind="transit",
         mode=skeleton.transit.mode,
-        title=f"Ride {skeleton.transit.route_name}",
+        title=build_transit_segment_title(skeleton),
         geometry=skeleton.geometry,
-        render=RenderStyle(color="#2563EB", width=7, pattern="solid"),
+        render=RenderStyle(color=skeleton.render_color, width=7, pattern="solid"),
         metrics=SegmentMetrics(
             distance_meters=skeleton.distance_meters,
             duration_seconds=skeleton.duration_seconds,
@@ -273,6 +304,59 @@ def build_transit_segment(skeleton: TransitSkeleton) -> RouteSegment:
         ),
         transit=skeleton.transit,
     )
+
+
+def build_transit_segment_title(skeleton: TransitLegSkeleton) -> str:
+    return (
+        f"{transit_mode_label(skeleton.transit.mode)} {skeleton.transit.route_name}: "
+        f"{skeleton.boarding_stop.name} -> {skeleton.alighting_stop.name}"
+    )
+
+
+def transit_mode_label(mode: str) -> str:
+    if mode == "bus":
+        return "버스"
+    if mode == "subway":
+        return "지하철"
+
+    return "대중교통"
+
+
+def transit_stop_icon(mode: str) -> str:
+    if mode == "bus":
+        return "bus-stop"
+    if mode == "subway":
+        return "subway-stop"
+
+    return "transit-stop"
+
+
+def build_transit_stop_markers(
+    skeleton: TransitLegSkeleton,
+    segment_id: str,
+    index: int,
+) -> list[RouteMarker]:
+    mode_label = transit_mode_label(skeleton.transit.mode)
+    route_name = skeleton.transit.route_name
+    icon = transit_stop_icon(skeleton.transit.mode)
+    return [
+        RouteMarker(
+            id=f"boarding-stop-{index}",
+            kind="stop",
+            title=f"탑승: {mode_label} {route_name} ({skeleton.boarding_stop.name})",
+            coordinate=skeleton.boarding_stop.coordinate,
+            segment_id=segment_id,
+            icon=icon,
+        ),
+        RouteMarker(
+            id=f"alighting-stop-{index}",
+            kind="stop",
+            title=f"하차: {mode_label} {route_name} ({skeleton.alighting_stop.name})",
+            coordinate=skeleton.alighting_stop.coordinate,
+            segment_id=segment_id,
+            icon=icon,
+        ),
+    ]
 
 
 def build_summary(segments: list[RouteSegment]) -> RouteSummary:

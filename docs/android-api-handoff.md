@@ -25,63 +25,53 @@ For local HTTP testing:
 
 ## 1. Health Check
 
-Call this before route requests.
-
 ```http
 GET /api/v1/health
 ```
 
-Success:
+Proceed when HTTP status is `200` and top-level `status` is `ok`.
 
-```json
-{
-  "status": "ok",
-  "service": "Steptwin API",
-  "environment": "local",
-  "version": "0.1.0",
-  "timestamp": "2026-07-02T13:00:00Z",
-  "checks": {
-    "application": { "status": "ok", "detail": null },
-    "database": { "status": "ok", "detail": null }
-  }
-}
-```
+## 2. Route Preview
 
-Proceed when HTTP status is `200` and `status` is `ok`.
-
-## 2. Custom Walking Route
-
-This is the main endpoint for custom walking route search.
+This is the main Android endpoint.
 
 ```http
-POST /api/v1/walk-routes/optimize
+POST /api/v1/routes/preview
 Content-Type: application/json
 ```
 
 Full URL:
 
 ```text
-http://172.30.1.66:8000/api/v1/walk-routes/optimize
+http://172.30.1.66:8000/api/v1/routes/preview
 ```
+
+The backend returns a full renderable route:
+
+- first walking segment
+- one or more public-transit segments from TMAP
+- transfer walking segments when TMAP uses multiple transit legs
+- last walking segment
+
+For long routes such as Seoul Station to Hoegi Station, Android must call this endpoint, not
+`/api/v1/walk-routes/optimize`.
 
 ### Request
 
-Android sends start, end, and optional user preferences.
-
 ```json
 {
-  "start": {
-    "name": "Hoegi Station",
+  "origin": {
+    "name": "Seoul Station",
     "coordinate": {
-      "latitude": 37.58945,
-      "longitude": 127.05775
+      "latitude": 37.5546788,
+      "longitude": 126.9706069
     }
   },
-  "end": {
-    "name": "Kyung Hee Medical Center",
+  "destination": {
+    "name": "Hoegi Station",
     "coordinate": {
-      "latitude": 37.59375,
-      "longitude": 127.05158
+      "latitude": 37.589802,
+      "longitude": 127.057936
     }
   },
   "preferences": {
@@ -100,25 +90,13 @@ Required request fields:
 
 | Field | Type | Required |
 | --- | --- | --- |
-| `start.name` | string | yes |
-| `start.coordinate.latitude` | number | yes |
-| `start.coordinate.longitude` | number | yes |
-| `end.name` | string | yes |
-| `end.coordinate.latitude` | number | yes |
-| `end.coordinate.longitude` | number | yes |
+| `origin.name` | string | yes |
+| `origin.coordinate.latitude` | number | yes |
+| `origin.coordinate.longitude` | number | yes |
+| `destination.name` | string | yes |
+| `destination.coordinate.latitude` | number | yes |
+| `destination.coordinate.longitude` | number | yes |
 | `preferences` | object | no |
-
-Preference defaults if omitted:
-
-| Field | Default | Range |
-| --- | --- | --- |
-| `avoid_stairs` | `true` | boolean |
-| `shade_weight` | `0.8` | `0` to `1` |
-| `stair_weight` | `1.0` | `0` to `3` |
-| `slope_weight` | `0.7` | `0` to `3` |
-| `corner_weight` | `0.4` | `0` to `3` |
-| `walking_speed_mps` | `1.15` | `> 0` to `2.5` |
-| `max_extra_walk_ratio` | `0.2` | `0` to `1` |
 
 Coordinates are always WGS84:
 
@@ -134,53 +112,89 @@ HTTP status: `200`
 
 ```json
 {
-  "route_kind": "weighted",
-  "start": {
-    "vertex_id": 1976,
-    "coordinate": {
-      "latitude": 37.58945,
-      "longitude": 127.05775
-    },
-    "snap_distance_meters": 0.0
+  "route_id": "36e221a6-f9d9-48a3-8ef2-ad0c80fcbf8d",
+  "summary": {
+    "total_distance_meters": 10125,
+    "total_duration_seconds": 1920,
+    "walking_distance_meters": 731,
+    "transit_distance_meters": 9394,
+    "shade_shelters": 0,
+    "stairs_avoided": 0
   },
-  "end": {
-    "vertex_id": 99467,
-    "coordinate": {
-      "latitude": 37.59375,
-      "longitude": 127.05158
-    },
-    "snap_distance_meters": 0.0
-  },
-  "geometry": [
-    { "latitude": 37.58945, "longitude": 127.05775 },
-    { "latitude": 37.5901, "longitude": 127.0568 },
-    { "latitude": 37.59375, "longitude": 127.05158 }
-  ],
-  "metrics": {
-    "total_cost_seconds": 872.55,
-    "total_distance_meters": 1003,
-    "duration_seconds": 872,
-    "stairs_count": 0,
-    "shade_shelters": 0
-  },
-  "steps": [
+  "segments": [
     {
-      "path_seq": 1,
-      "node_id": 1,
-      "edge_id": 210574,
-      "cost_seconds": 40.2,
-      "agg_cost_seconds": 0.0,
-      "distance_meters": 46.2,
-      "stairs_count": 0,
-      "shade_score": 0.0,
-      "corner_count": 0,
-      "slope_grade": 0.0,
+      "id": "walk-first-mile",
+      "kind": "custom_walk",
+      "mode": "walk",
+      "title": "Stair-minimized first mile",
       "geometry": [
-        { "latitude": 37.58945, "longitude": 127.05775 },
-        { "latitude": 37.5901, "longitude": 127.0568 }
-      ]
+        { "latitude": 37.5546788, "longitude": 126.9706069 },
+        { "latitude": 37.5559556, "longitude": 126.972275 }
+      ],
+      "render": {
+        "color": "#16A34A",
+        "width": 6,
+        "pattern": "dashed"
+      },
+      "metrics": {
+        "distance_meters": 180,
+        "duration_seconds": 156,
+        "shade_shelters": 0,
+        "stairs_avoided": 0
+      },
+      "transit": null
+    },
+    {
+      "id": "transit-1",
+      "kind": "transit",
+      "mode": "subway",
+      "title": "Ride 수도권1호선",
+      "geometry": [
+        { "latitude": 37.5559556, "longitude": 126.972275 },
+        { "latitude": 37.5898083, "longitude": 127.0579528 }
+      ],
+      "render": {
+        "color": "#0052A4",
+        "width": 7,
+        "pattern": "solid"
+      },
+      "metrics": {
+        "distance_meters": 9394,
+        "duration_seconds": 1320,
+        "shade_shelters": 0,
+        "stairs_avoided": 0
+      },
+      "transit": {
+        "mode": "subway",
+        "route_name": "수도권1호선",
+        "bus_number": null,
+        "subway_line": "수도권1호선",
+        "boarding_stop": "서울역",
+        "alighting_stop": "회기",
+        "headsign": "회기"
+      }
     }
-  ]
+  ],
+  "markers": [
+    {
+      "id": "origin",
+      "kind": "origin",
+      "title": "Seoul Station",
+      "coordinate": { "latitude": 37.5546788, "longitude": 126.9706069 },
+      "segment_id": null,
+      "icon": "origin"
+    }
+  ],
+  "viewport": {
+    "southwest": { "latitude": 37.5546788, "longitude": 126.9706069 },
+    "northeast": { "latitude": 37.5898083, "longitude": 127.0579528 }
+  },
+  "debug": {
+    "macro_router": "live-tmap-adapter",
+    "micro_router": "mixed-pgrouting-demo-pedestrian-router",
+    "tmap_live_sync": true,
+    "note": "Debug text."
+  }
 }
 ```
 
@@ -188,71 +202,73 @@ Android must use:
 
 | Field | Android usage |
 | --- | --- |
-| `geometry` | Draw this as the route polyline. |
-| `metrics.total_distance_meters` | Show walking distance. |
-| `metrics.duration_seconds` | Show walking time. |
-| `metrics.stairs_count` | Show stairs count if needed. |
-| `metrics.shade_shelters` | Show shade count if needed. |
-| `start.coordinate` | Optional snapped start marker. |
-| `end.coordinate` | Optional snapped end marker. |
-| `steps` | Optional debug/detail data. Not needed for first map drawing. |
+| `segments[]` | Draw one polyline per segment. |
+| `segments[].title` | Show the route instruction, for example `지하철 수도권1호선: 서울역 -> 회기`. |
+| `segments[].geometry` | Ordered route coordinates. |
+| `segments[].render.color` | Polyline color. Use this exactly. |
+| `segments[].render.width` | Polyline width. |
+| `segments[].render.pattern` | `solid` or `dashed`. |
+| `segments[].transit.mode` | Distinguish `bus` from `subway`. |
+| `segments[].transit.route_name` | Backward-compatible route display name. |
+| `segments[].transit.bus_number` | Bus number when `mode = bus`; otherwise `null`. |
+| `segments[].transit.subway_line` | Subway line when `mode = subway`; otherwise `null`. |
+| `markers[]` | Draw route markers. |
+| `markers[].title` | Show boarding/alighting text, for example `탑승: 지하철 수도권1호선 (서울역)`. |
+| `markers[].icon` | Use `bus-stop` or `subway-stop` when available. |
+| `viewport` | Fit map camera. |
+| `summary` | Show total distance/time. |
 
-Recommended map drawing:
+Rendering rules:
 
-| Item | Value |
+Important: `segments[]` can contain multiple transit legs. Mixed bus/subway routes are returned as
+separate ordered segments such as `transit-1`, `walk-transfer-1`, and `transit-2`. Android must not
+look for a fixed `transit-main` ID.
+
+1. Draw every `segments[]` item separately.
+2. Walking segments are usually green dashed lines.
+3. Transit segments are solid lines. For TMAP subway/bus, use `segment.render.color`.
+4. For Seoul Station to Hoegi Station, the transit segment should be `수도권1호선` and visually
+   different from walking segments.
+5. Do not merge all segment geometry into one same-color polyline.
+
+Known segment kinds:
+
+| kind | Meaning |
 | --- | --- |
-| Route line color | `#16A34A` |
-| Route line width | `6` |
-| Start marker | Existing Android start marker |
-| End marker | Existing Android end marker |
-| Camera | Fit all points in `geometry` |
+| `custom_walk` | Custom walking segment. |
+| `transit` | TMAP public-transit segment. |
 
-## Error Responses
+Known marker icons:
 
-### No Route
+| icon | Meaning |
+| --- | --- |
+| `origin` | Start point |
+| `destination` | End point |
+| `transit-stop` | Boarding/alighting stop |
+| `bus-stop` | Bus boarding/alighting stop |
+| `subway-stop` | Subway boarding/alighting stop |
+| `parasol` | Shade shelter |
+| `tree` | Tree shade |
+| `stairs-off` | Avoided stairs |
 
-HTTP status: `404`
+## 3. Walking-Only Endpoint
 
-```json
-{
-  "detail": "No pedestrian path from vertex 1976 to vertex 99467"
-}
+This endpoint is not the main Android endpoint for long-distance routing:
+
+```http
+POST /api/v1/walk-routes/optimize
 ```
 
-Android behavior:
+Use it only for a pure walking route between nearby points. It does not call TMAP and will not choose
+subway or bus.
 
-- Keep start and end markers visible.
-- Do not draw a route polyline.
-- Show a route-not-found message.
-- This can happen while the walking network data is still being improved.
+## Error Handling
 
-### Invalid Request
+| HTTP status | Meaning | Android behavior |
+| --- | --- | --- |
+| `200` | Response is renderable. | Draw route. |
+| `404` | Walking graph cannot connect a walking sub-route. | Show route-not-found state. |
+| `422` | Invalid request shape or invalid coordinate/preference range. | Treat as input error. |
+| `500`/`503` | Backend/database/TMAP issue. | Show temporary backend error. |
 
-HTTP status: `422`
-
-Usually means a missing field, invalid latitude/longitude, or preference value outside its allowed
-range.
-
-Android behavior:
-
-- Treat as input/request error.
-- Check request JSON shape and coordinate order.
-
-### Backend Error
-
-HTTP status: `500` or `503`
-
-Android behavior:
-
-- Show temporary backend error.
-- User may retry later.
-
-## Android Implementation Checklist
-
-1. Call `GET /api/v1/health`.
-2. Let user pick start and end.
-3. Send `POST /api/v1/walk-routes/optimize`.
-4. If `200`, draw `geometry` as one Kakao Map polyline.
-5. If `404`, show start/end markers and route-not-found state.
-6. Fit camera to route geometry when a route exists.
-7. Ignore unknown JSON fields.
+Android should ignore unknown JSON fields.

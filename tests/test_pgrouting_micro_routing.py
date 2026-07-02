@@ -6,9 +6,9 @@ from steptwin_api.services.pgrouting_micro_routing import (
     PgRoutingGraphConfig,
     PgRoutingSnappedEndpoint,
     build_pgrouting_route_query,
-    build_snap_endpoints_query,
     build_route_from_rows,
     build_shortest_edges_sql,
+    build_snap_endpoints_query,
     build_weighted_edges_sql,
 )
 
@@ -75,7 +75,7 @@ def test_snap_query_ignores_vertices_not_connected_to_any_edge() -> None:
     sql = build_snap_endpoints_query(PgRoutingGraphConfig())
 
     assert "WHERE EXISTS" in sql
-    assert 'FROM "pedestrian_edges" AS edge' in sql
+    assert 'FROM "osm_pedestrian_edges" AS edge' in sql
     assert 'edge."source" = candidate."id"' in sql
     assert 'edge."target" = candidate."id"' in sql
 

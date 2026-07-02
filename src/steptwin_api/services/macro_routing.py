@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -13,6 +14,17 @@ TmapNormalizedMode = Literal["bus", "subway"]
 
 
 @dataclass(frozen=True)
+class TransitLegSkeleton:
+    boarding_stop: Place
+    alighting_stop: Place
+    geometry: list[Coordinate]
+    transit: TransitDetails
+    distance_meters: int
+    duration_seconds: int
+    render_color: str = "#2563EB"
+
+
+@dataclass(frozen=True)
 class TransitSkeleton:
     boarding_stop: Place
     alighting_stop: Place
@@ -20,6 +32,8 @@ class TransitSkeleton:
     transit: TransitDetails
     distance_meters: int
     duration_seconds: int
+    render_color: str = "#2563EB"
+    transit_legs: tuple[TransitLegSkeleton, ...] = ()
 
 
 class DemoMacroRouter:
@@ -44,19 +58,31 @@ class DemoMacroRouter:
         ]
         distance = distance_meters(geometry)
 
-        return TransitSkeleton(
+        leg = TransitLegSkeleton(
             boarding_stop=boarding_stop,
             alighting_stop=alighting_stop,
             geometry=geometry,
             transit=TransitDetails(
                 mode="subway",
                 route_name="Demo Transit Line",
+                subway_line="Demo Transit Line",
                 boarding_stop=boarding_stop.name,
                 alighting_stop=alighting_stop.name,
                 headsign=destination.name,
             ),
             distance_meters=distance,
             duration_seconds=estimate_transit_seconds(distance),
+            render_color="#2563EB",
+        )
+        return TransitSkeleton(
+            boarding_stop=boarding_stop,
+            alighting_stop=alighting_stop,
+            geometry=geometry,
+            transit=leg.transit,
+            distance_meters=leg.distance_meters,
+            duration_seconds=leg.duration_seconds,
+            render_color=leg.render_color,
+            transit_legs=(leg,),
         )
 
 
@@ -145,32 +171,43 @@ def parse_tmap_itinerary(itinerary: dict[str, Any]) -> TransitSkeleton | None:
     if not transit_legs:
         return None
 
-    boarding_stop = parse_tmap_place(transit_legs[0].get("start"))
-    alighting_stop = parse_tmap_place(transit_legs[-1].get("end"))
-    if boarding_stop is None or alighting_stop is None:
+    parsed_legs = tuple(
+        parsed_leg
+        for leg in transit_legs
+        if (parsed_leg := parse_tmap_transit_leg(leg)) is not None
+    )
+    if not parsed_legs:
         return None
 
-    geometry = build_tmap_transit_geometry(transit_legs, boarding_stop, alighting_stop)
+    boarding_stop = parsed_legs[0].boarding_stop
+    alighting_stop = parsed_legs[-1].alighting_stop
+    geometry = combine_tmap_transit_leg_geometries(parsed_legs)
     if len(geometry) < 2:
         return None
 
-    route_names = compact_unique_strings(
-        stringify(leg.get("route")) for leg in transit_legs if isinstance(leg, dict)
-    )
-    first_mode = normalize_tmap_mode(transit_legs[0].get("mode"))
-    if first_mode is None:
-        return None
-
-    duration = sum_int_field(transit_legs, "sectionTime")
-    distance = sum_int_field(transit_legs, "distance")
+    route_names = compact_unique_strings(leg.transit.route_name for leg in parsed_legs)
+    duration = sum(leg.duration_seconds for leg in parsed_legs)
+    distance = sum(leg.distance_meters for leg in parsed_legs)
 
     return TransitSkeleton(
         boarding_stop=boarding_stop,
         alighting_stop=alighting_stop,
         geometry=geometry,
         transit=TransitDetails(
-            mode=first_mode,
-            route_name=" + ".join(route_names) if route_names else first_mode.upper(),
+            mode=parsed_legs[0].transit.mode,
+            route_name=(
+                " + ".join(route_names) if route_names else parsed_legs[0].transit.mode.upper()
+            ),
+            bus_number=build_combined_mode_value(
+                parsed_legs,
+                mode="bus",
+                field_name="bus_number",
+            ),
+            subway_line=build_combined_mode_value(
+                parsed_legs,
+                mode="subway",
+                field_name="subway_line",
+            ),
             boarding_stop=boarding_stop.name,
             alighting_stop=alighting_stop.name,
             headsign=alighting_stop.name,
@@ -179,7 +216,90 @@ def parse_tmap_itinerary(itinerary: dict[str, Any]) -> TransitSkeleton | None:
         duration_seconds=duration
         if duration > 0
         else estimate_transit_seconds(distance_meters(geometry)),
+        render_color=parsed_legs[0].render_color,
+        transit_legs=parsed_legs,
     )
+
+
+def parse_tmap_transit_leg(leg: dict[str, Any]) -> TransitLegSkeleton | None:
+    mode = normalize_tmap_mode(leg.get("mode"))
+    boarding_stop = parse_tmap_place(leg.get("start"))
+    alighting_stop = parse_tmap_place(leg.get("end"))
+    if mode is None or boarding_stop is None or alighting_stop is None:
+        return None
+
+    geometry = build_tmap_single_leg_geometry(leg, boarding_stop, alighting_stop)
+    if len(geometry) < 2:
+        return None
+
+    route_name = stringify(leg.get("route")) or mode.upper()
+    route_id = stringify(leg.get("routeId"))
+    distance = sum_int_field([leg], "distance")
+    duration = sum_int_field([leg], "sectionTime")
+
+    return TransitLegSkeleton(
+        boarding_stop=boarding_stop,
+        alighting_stop=alighting_stop,
+        geometry=geometry,
+        transit=TransitDetails(
+            mode=mode,
+            route_name=route_name,
+            bus_number=extract_bus_number(route_name, route_id) if mode == "bus" else None,
+            subway_line=extract_subway_line(route_name, route_id) if mode == "subway" else None,
+            boarding_stop=boarding_stop.name,
+            alighting_stop=alighting_stop.name,
+            headsign=alighting_stop.name,
+        ),
+        distance_meters=distance if distance > 0 else distance_meters(geometry),
+        duration_seconds=(
+            duration if duration > 0 else estimate_transit_seconds(distance_meters(geometry))
+        ),
+        render_color=normalize_route_color(leg.get("routeColor")) or default_route_color(mode),
+    )
+
+
+def build_combined_mode_value(
+    legs: tuple[TransitLegSkeleton, ...],
+    *,
+    mode: TmapNormalizedMode,
+    field_name: Literal["bus_number", "subway_line"],
+) -> str | None:
+    values = compact_unique_strings(
+        getattr(leg.transit, field_name) for leg in legs if leg.transit.mode == mode
+    )
+    return " + ".join(values) if values else None
+
+
+def extract_bus_number(route_name: str, route_id: str | None) -> str:
+    route_name_match = re.search(r"[A-Za-z가-힣]*\d+[A-Za-z가-힣\d-]*", route_name)
+    if route_name_match is not None:
+        return route_name_match.group(0)
+
+    route_id_value = route_id_suffix(route_id)
+    return route_id_value or route_name
+
+
+def extract_subway_line(route_name: str, route_id: str | None) -> str:
+    if route_name.upper() != "SUBWAY":
+        return route_name
+
+    route_id_value = route_id_suffix(route_id)
+    return route_id_value or route_name
+
+
+def route_id_suffix(route_id: str | None) -> str | None:
+    if route_id is None:
+        return None
+
+    suffix = route_id.rsplit(":", maxsplit=1)[-1].strip()
+    return suffix or None
+
+
+def default_route_color(mode: TmapNormalizedMode) -> str:
+    if mode == "bus":
+        return "#0068B7"
+
+    return "#2563EB"
 
 
 def normalize_tmap_mode(value: object) -> TmapNormalizedMode | None:
@@ -193,6 +313,29 @@ def normalize_tmap_mode(value: object) -> TmapNormalizedMode | None:
         return "bus"
 
     return None
+
+
+def first_valid_route_color(transit_legs: list[dict[str, Any]]) -> str | None:
+    for leg in transit_legs:
+        color = normalize_route_color(leg.get("routeColor"))
+        if color is not None:
+            return color
+
+    return None
+
+
+def normalize_route_color(value: object) -> str | None:
+    text = stringify(value)
+    if text is None:
+        return None
+
+    stripped = text.strip().lstrip("#")
+    if len(stripped) != 6:
+        return None
+    if any(character not in "0123456789abcdefABCDEF" for character in stripped):
+        return None
+
+    return f"#{stripped.upper()}"
 
 
 def parse_tmap_place(value: object) -> Place | None:
@@ -216,23 +359,24 @@ def parse_tmap_coordinate(value: dict[str, Any]) -> Coordinate | None:
     return Coordinate(latitude=lat, longitude=lon)
 
 
-def build_tmap_transit_geometry(
-    transit_legs: list[dict[str, Any]],
+def build_tmap_single_leg_geometry(
+    leg: dict[str, Any],
     boarding_stop: Place,
     alighting_stop: Place,
 ) -> list[Coordinate]:
     geometry = [boarding_stop.coordinate]
-
-    for leg in transit_legs:
-        pass_shape = leg.get("passShape")
-        if isinstance(pass_shape, dict):
-            geometry.extend(parse_tmap_linestring(pass_shape.get("linestring")))
-
-        leg_end = parse_tmap_place(leg.get("end"))
-        if leg_end is not None:
-            geometry.append(leg_end.coordinate)
-
+    pass_shape = leg.get("passShape")
+    if isinstance(pass_shape, dict):
+        geometry.extend(parse_tmap_linestring(pass_shape.get("linestring")))
     geometry.append(alighting_stop.coordinate)
+    return dedupe_adjacent_coordinates(geometry)
+
+
+def combine_tmap_transit_leg_geometries(legs: tuple[TransitLegSkeleton, ...]) -> list[Coordinate]:
+    geometry: list[Coordinate] = []
+    for leg in legs:
+        geometry.extend(leg.geometry)
+
     return dedupe_adjacent_coordinates(geometry)
 
 

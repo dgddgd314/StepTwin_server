@@ -36,6 +36,9 @@ logs/
 *.log
 *.pid
 
+# Generated local graph viewers
+docs/*_viewer.html
+
 # Local databases and dumps
 *.db
 *.sqlite
