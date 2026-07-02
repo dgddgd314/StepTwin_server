@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E501
 import argparse
 import asyncio
 import json
@@ -77,6 +78,7 @@ SELECT
     edge.shade_score,
     edge.corner_count,
     edge.slope_grade,
+    COALESCE(edge.roughness_score, 0)::float8 AS roughness_score,
     COALESCE(edge_components.component, edge.source)::bigint AS component,
     COALESCE(edge_components.node_count, 1)::integer AS component_node_count,
     ST_AsGeoJSON(edge.geom) AS geometry_json
@@ -180,6 +182,7 @@ def edge_payload(row: Any) -> dict[str, Any]:
         "shade_score": float(row["shade_score"]),
         "corner_count": row["corner_count"],
         "slope_grade": float(row["slope_grade"]),
+        "roughness_score": float(row["roughness_score"]),
         "component": row["component"],
         "component_node_count": row["component_node_count"],
         "coordinates": geometry["coordinates"],
@@ -232,6 +235,8 @@ button {{ cursor: pointer; }}
     <option value="component">Color by component</option>
     <option value="shade">Shade score</option>
     <option value="stairs">Stairs</option>
+    <option value="roughness">Roughness</option>
+    <option value="slope">Slope</option>
   </select>
   <label>View</label>
   <div class="row">
@@ -273,6 +278,14 @@ function edgeColor(edge) {{
   }}
   if (edgeMode.value === "stairs") {{
     return edge.stairs_count > 0 ? "#c2410c" : "#2f6f8f";
+  }}
+  if (edgeMode.value === "roughness") {{
+    const red = Math.round(60 + edge.roughness_score * 180);
+    return `rgb(${{red}},80,55)`;
+  }}
+  if (edgeMode.value === "slope") {{
+    const purple = Math.round(80 + Math.min(edge.slope_grade, 0.2) * 800);
+    return `rgb(${{purple}},65,150)`;
   }}
   return componentColor(edge.component);
 }}

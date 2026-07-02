@@ -15,6 +15,7 @@ from steptwin_api.schemas.walk_routing import (
 )
 from steptwin_api.services.pgrouting_micro_routing import (
     PgRoutingError,
+    PgRoutingGraphConfig,
     PgRoutingNoPathError,
     PgRoutingPedestrianRoute,
     PgRoutingSnapError,
@@ -43,6 +44,7 @@ async def optimize_walk_route(
                 request.start.coordinate,
                 request.end.coordinate,
                 request.preferences,
+                graph_config=build_walk_route_graph_config(settings),
             )
     except PgRoutingSnapError as exc:
         raise HTTPException(
@@ -66,6 +68,13 @@ async def optimize_walk_route(
         ) from exc
 
     return build_walk_route_response(route)
+
+
+def build_walk_route_graph_config(settings: Settings) -> PgRoutingGraphConfig:
+    return PgRoutingGraphConfig(
+        edge_table=settings.pedestrian_graph_edge_table,
+        vertex_table=settings.pedestrian_graph_vertex_table,
+    )
 
 
 def build_walk_route_response(route: PgRoutingPedestrianRoute) -> WalkRouteOptimizeResponse:

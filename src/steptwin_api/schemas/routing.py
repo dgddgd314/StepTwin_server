@@ -56,6 +56,8 @@ class TransitDetails(BaseModel):
 
     mode: Literal["bus", "subway"]
     route_name: str
+    bus_number: str | None = None
+    subway_line: str | None = None
     boarding_stop: str
     alighting_stop: str
     headsign: str | None = None

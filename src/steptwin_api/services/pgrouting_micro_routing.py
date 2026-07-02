@@ -33,8 +33,8 @@ class PgRoutingSnapError(PgRoutingError):
 
 @dataclass(frozen=True, slots=True)
 class PgRoutingGraphConfig:
-    edge_table: str = "pedestrian_edges"
-    vertex_table: str = "pedestrian_vertices"
+    edge_table: str = "osm_pedestrian_edges"
+    vertex_table: str = "osm_pedestrian_vertices"
     edge_id_column: str = "id"
     source_column: str = "source"
     target_column: str = "target"

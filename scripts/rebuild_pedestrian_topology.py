@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from steptwin_api.core.config import get_settings
 from steptwin_api.db.session import close_database, init_database, session_context
+from steptwin_api.services.pgrouting_micro_routing import quote_qualified_identifier
 
 DEFAULT_TOLERANCE_METERS = 2.0
 WORK_SRID = 5179
-SOURCE_EDGE_TABLE = "pedestrian_edges"
 TOPOLOGY_WORK_EDGE_TABLE = "pedestrian_topology_work_edges"
 TOPOLOGY_WORK_NODED_EDGE_TABLE = f"{TOPOLOGY_WORK_EDGE_TABLE}_noded"
 TOPOLOGY_EDGE_TABLE = "pedestrian_topology_edges"
@@ -23,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Rebuild a pgRouting-ready pedestrian topology by snapping edge endpoints within a "
-            "meter tolerance. Source pedestrian_edges/pedestrian_vertices are left untouched."
+            "meter tolerance. The configured pedestrian graph tables are left untouched."
         )
     )
     parser.add_argument(
@@ -57,7 +56,7 @@ async def rebuild_topology(tolerance_meters: float, *, node_network: bool) -> No
                 await session.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
                 await session.execute(text("CREATE EXTENSION IF NOT EXISTS pgrouting"))
                 await drop_existing_topology_tables(session)
-                await create_projected_work_edges(session)
+                await create_projected_work_edges(session, settings.pedestrian_graph_edge_table)
                 topology_source_table = TOPOLOGY_WORK_EDGE_TABLE
                 if node_network:
                     await run_pgr_node_network(session, tolerance_meters)
@@ -89,7 +88,8 @@ async def drop_existing_topology_tables(session: object) -> None:
         await session.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
 
 
-async def create_projected_work_edges(session: object) -> None:
+async def create_projected_work_edges(session: object, source_edge_table: str) -> None:
+    source = quote_qualified_identifier(source_edge_table)
     await session.execute(
         text(
             f"""
@@ -112,7 +112,7 @@ SELECT
     "bidirectional" AS "bidirectional",
     "name" AS "name",
     "tags" AS "tags"
-FROM "{SOURCE_EDGE_TABLE}"
+FROM {source}
 WHERE "geom" IS NOT NULL
     AND "distance_meters" > 0
 """

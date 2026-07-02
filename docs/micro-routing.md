@@ -30,10 +30,10 @@ The recommended production shape is:
 4. Run pgRouting shortest path with request-specific `cost`.
 5. Return ordered WGS84 coordinates to the existing StepTwin response contract.
 
-The canonical graph data shape and validation API are documented in:
+The OSM graph import and table shape are documented in:
 
 ```text
-docs/pedestrian-graph-data.md
+docs/osm-walk-network.md
 ```
 
 ## License Check
