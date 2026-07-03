@@ -19,4 +19,5 @@ def test_settings_env_file_is_project_root_relative(
     assert settings.tmap_base_url == "https://apis.openapi.sk.com"
     assert settings.pedestrian_graph_vertex_table == "osm_pedestrian_vertices"
     assert settings.pedestrian_graph_edge_table == "osm_pedestrian_edges"
+    assert settings.pedestrian_graph_slope_column == "slope_enabled_grade"
     assert settings.seoul_sdot_service == "sDoTPeople"

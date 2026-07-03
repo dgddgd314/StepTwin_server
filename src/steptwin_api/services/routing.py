@@ -259,6 +259,7 @@ def build_pgrouting_graph_config(settings: Settings) -> PgRoutingGraphConfig:
     return PgRoutingGraphConfig(
         edge_table=settings.pedestrian_graph_edge_table,
         vertex_table=settings.pedestrian_graph_vertex_table,
+        slope_column=settings.pedestrian_graph_slope_column,
     )
 
 
