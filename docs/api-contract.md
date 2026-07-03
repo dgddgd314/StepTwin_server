@@ -190,7 +190,7 @@ score =
   base_seconds
   + stairs_count * 240 * stair_weight
   + avoid_stairs_extra
-  + distance_meters * slope_grade * 4.5 * slope_weight
+  + distance_meters * slope_grade * 24.0 * slope_weight
   + corner_count * 18 * corner_weight
   + base_seconds * crowding_score * 0.6 * crowding_weight
   + crossing_wait_seconds

@@ -1,6 +1,7 @@
 from steptwin_api.schemas.routing import Coordinate, Place, RoutingPreferences
 from steptwin_api.services.micro_routing import (
     DemoMicroRouter,
+    PedestrianEdge,
     PedestrianCostProfile,
     build_segment_graph,
     edge_cost_seconds,
@@ -43,6 +44,30 @@ def test_stair_penalty_increases_edge_cost_for_accessibility_profile() -> None:
     )
 
     assert edge_cost_seconds(stairs_edge, accessible) > edge_cost_seconds(stairs_edge, neutral)
+
+
+def test_slope_penalty_strongly_increases_steep_edge_cost() -> None:
+    edge = PedestrianEdge(
+        start_id="start",
+        end_id="end",
+        geometry=[
+            Coordinate(latitude=37.0, longitude=127.0),
+            Coordinate(latitude=37.0, longitude=127.001),
+        ],
+        distance_meters=100,
+        slope_grade=0.15,
+    )
+    flat_profile = PedestrianCostProfile.from_preferences(
+        RoutingPreferences(slope_weight=0, walking_speed_mps=1)
+    )
+    slope_sensitive_profile = PedestrianCostProfile.from_preferences(
+        RoutingPreferences(slope_weight=1, walking_speed_mps=1)
+    )
+
+    assert edge_cost_seconds(edge, slope_sensitive_profile) - edge_cost_seconds(
+        edge,
+        flat_profile,
+    ) == 360
 
 
 def test_micro_router_returns_accessibility_markers_and_metrics() -> None:

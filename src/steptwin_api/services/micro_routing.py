@@ -287,7 +287,7 @@ def edge_cost_seconds(edge: PedestrianEdge, profile: PedestrianCostProfile) -> f
     if profile.avoid_stairs and edge.stairs_count > 0:
         stair_penalty += 360 * edge.stairs_count
 
-    slope_penalty = edge.distance_meters * edge.slope_grade * 4.5 * profile.slope_weight
+    slope_penalty = edge.distance_meters * edge.slope_grade * 24.0 * profile.slope_weight
     corner_penalty = edge.corner_count * 18 * profile.corner_weight
     crowding_penalty = base_seconds * edge.crowding_score * 0.6 * profile.crowding_weight
     shade_reward = base_seconds * edge.shade_score * 0.35 * profile.shade_weight
