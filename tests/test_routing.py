@@ -425,6 +425,108 @@ async def test_route_preview_prefers_two_buses_for_moderately_vulnerable_user(
 
 
 @pytest.mark.asyncio
+async def test_route_preview_allows_direct_walk_for_slightly_vulnerable_user(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    origin = Place(name="Origin", coordinate=Coordinate(latitude=37.0, longitude=127.0))
+    destination = Place(
+        name="Destination",
+        coordinate=Coordinate(latitude=37.01, longitude=127.01),
+    )
+
+    class SingleBusRouter:
+        def build_transit_skeleton(self, origin: Place, destination: Place) -> TransitSkeleton:
+            bus_start = Place(
+                name="Bus Start",
+                coordinate=Coordinate(latitude=37.001, longitude=127.001),
+            )
+            bus_end = Place(
+                name="Bus End",
+                coordinate=Coordinate(latitude=37.009, longitude=127.009),
+            )
+            bus_leg = TransitLegSkeleton(
+                boarding_stop=bus_start,
+                alighting_stop=bus_end,
+                geometry=[bus_start.coordinate, bus_end.coordinate],
+                transit=TransitDetails(
+                    mode="bus",
+                    route_name="Blue 1",
+                    bus_number="1",
+                    boarding_stop=bus_start.name,
+                    alighting_stop=bus_end.name,
+                ),
+                distance_meters=1000,
+                duration_seconds=600,
+                render_color="#0068B7",
+            )
+            return TransitSkeleton(
+                boarding_stop=bus_start,
+                alighting_stop=bus_end,
+                geometry=[bus_start.coordinate, bus_end.coordinate],
+                transit=bus_leg.transit,
+                distance_meters=1000,
+                duration_seconds=600,
+                render_color="#0068B7",
+                transit_legs=(bus_leg,),
+            )
+
+    @asynccontextmanager
+    async def fake_session_context() -> AsyncIterator[object]:
+        yield object()
+
+    async def fake_find_pgrouting_walk_route(
+        executor: object,
+        start: Coordinate,
+        end: Coordinate,
+        preferences: object,
+        *,
+        graph_config: PgRoutingGraphConfig,
+    ) -> PgRoutingPedestrianRoute:
+        is_direct_walk = start == origin.coordinate and end == destination.coordinate
+        return PgRoutingPedestrianRoute(
+            geometry=(start, end),
+            steps=(),
+            total_cost_seconds=1140 if is_direct_walk else 60,
+            total_distance_meters=1140 if is_direct_walk else 60,
+            duration_seconds=1140 if is_direct_walk else 60,
+            stairs_count=0,
+            shade_shelters=0,
+            route_kind="weighted",
+            start=PgRoutingSnappedEndpoint(
+                vertex_id=1,
+                coordinate=start,
+                snap_distance_meters=5,
+            ),
+            end=PgRoutingSnappedEndpoint(
+                vertex_id=2,
+                coordinate=end,
+                snap_distance_meters=5,
+            ),
+        )
+
+    monkeypatch.setattr(routing, "session_context", fake_session_context)
+    monkeypatch.setattr(routing, "find_pgrouting_walk_route", fake_find_pgrouting_walk_route)
+    service = routing.RoutePreviewService(
+        macro_router=SingleBusRouter(),
+        settings=Settings(database_url="postgresql+asyncpg://app:app@127.0.0.1:5432/steptwin"),
+    )
+
+    response = await service.build_preview(
+        RoutePreviewRequest(
+            origin=origin,
+            destination=destination,
+            vulnerabilities={
+                "speed_vulnerability": 0.35,
+                "turn_vulnerability": 0.35,
+                "strength_vulnerability": 0.35,
+            },
+        )
+    )
+
+    assert [segment.id for segment in response.segments] == ["walk-direct"]
+
+
+@pytest.mark.asyncio
 async def test_route_preview_uses_pgrouting_graph_when_database_is_configured(
     monkeypatch: MonkeyPatch,
 ) -> None:

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = 1800
     pedestrian_graph_vertex_table: str = "osm_pedestrian_vertices"
     pedestrian_graph_edge_table: str = "osm_pedestrian_edges"
+    pedestrian_graph_slope_column: str = "slope_enabled_grade"
     pedestrian_graph_max_snap_distance_meters: float = 500
     tmap_app_key: str | None = None
     tmap_base_url: str = "https://apis.openapi.sk.com"

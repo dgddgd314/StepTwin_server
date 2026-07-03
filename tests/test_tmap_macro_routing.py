@@ -321,7 +321,7 @@ def test_transit_route_score_penalizes_single_bus_boarding() -> None:
         transit_legs=(bus_leg,),
     )
 
-    assert transit_route_score_seconds(skeleton) == 1080
+    assert transit_route_score_seconds(skeleton) == 1140
 
 
 def test_transit_route_score_penalizes_bus_to_bus_transfer_more_than_bus_to_subway() -> None:
@@ -395,5 +395,5 @@ def test_transit_route_score_penalizes_bus_to_bus_transfer_more_than_bus_to_subw
         transit_legs=(bus_leg, subway_leg),
     )
 
-    assert transit_route_score_seconds(bus_to_subway) == 1275
-    assert transit_route_score_seconds(bus_to_bus) == 1710
+    assert transit_route_score_seconds(bus_to_subway) == 1320
+    assert transit_route_score_seconds(bus_to_bus) == 1800

@@ -29,7 +29,7 @@ def test_cost_profile_converts_user_preferences_to_edge_coefficients() -> None:
 
     assert profile.walking_speed_mps == 1.2
     assert profile.stair_penalty_seconds_per_count == 720
-    assert profile.slope_penalty_seconds_per_meter_grade == pytest.approx(3.15)
+    assert profile.slope_penalty_seconds_per_meter_grade == pytest.approx(16.8)
     assert profile.corner_penalty_seconds_per_count == pytest.approx(7.2)
     assert profile.crowding_penalty_fraction == pytest.approx(0.36)
     assert profile.shade_reward_fraction == pytest.approx(0.28)
@@ -58,7 +58,7 @@ def test_weighted_edges_sql_matches_pgrouting_contract() -> None:
     assert "AS reverse_cost" in sql
     assert "GREATEST(" in sql
     assert '* 600' in sql
-    assert '* 4.5' in sql
+    assert '* 24' in sql
     assert '* 18' in sql
     assert '* 0.6' in sql
     assert '* 0.35' in sql

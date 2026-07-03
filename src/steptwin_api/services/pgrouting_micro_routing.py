@@ -76,7 +76,7 @@ class PgRoutingCostProfile:
         return cls(
             walking_speed_mps=preferences.walking_speed_mps,
             stair_penalty_seconds_per_count=stair_penalty,
-            slope_penalty_seconds_per_meter_grade=4.5 * preferences.slope_weight,
+            slope_penalty_seconds_per_meter_grade=24.0 * preferences.slope_weight,
             corner_penalty_seconds_per_count=18 * preferences.corner_weight,
             crowding_penalty_fraction=0.6 * preferences.crowding_weight,
             shade_reward_fraction=0.35 * preferences.shade_weight,
